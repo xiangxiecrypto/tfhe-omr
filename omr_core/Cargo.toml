@@ -1,0 +1,10 @@
+[package]
+name = "omr_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+algebra = { workspace = true }
+lattice = { workspace = true }
+fhe_core = { workspace = true }
+rand = { workspace = true }
