@@ -2,12 +2,12 @@ use std::sync::Arc;
 
 use algebra::NttField;
 use fhe_core::{
-    BlindRotationKey, LweKeySwitchingKeyRlweMode, LwePublicKeyRlweMode, LweSecretKey,
-    NttRlweSecretKey, RlweSecretKey, TraceKey,
+    BlindRotationKey, LweCiphertext, LweKeySwitchingKeyRlweMode, LwePublicKeyRlweMode,
+    LweSecretKey, NttRlweSecretKey, RlweSecretKey, TraceKey,
 };
 use rand::{CryptoRng, Rng};
 
-use crate::{FirstLevelField, LweValue, OmrParameters, SecondLevelField};
+use crate::{FirstLevelField, InterLweValue, LweValue, OmrParameters, SecondLevelField};
 
 use super::{ClueKey, DetectionKey};
 
@@ -24,12 +24,15 @@ pub struct SecretKeyPack {
     first_level_rlwe_secret_key: RlweSecretKey<FirstLevelField>,
     /// first level ntt version rlwe secret key
     first_level_ntt_rlwe_secret_key: NttRlweSecretKey<FirstLevelField>,
+    /// first level ntt table
     first_level_ntt_table: Arc<<FirstLevelField as NttField>::Table>,
-    intermediate_lwe_secret_key: LweSecretKey<LweValue>,
+    /// intermediate lwe secret key
+    intermediate_lwe_secret_key: LweSecretKey<InterLweValue>,
     /// second level rlwe secret key
     second_level_rlwe_secret_key: RlweSecretKey<SecondLevelField>,
     /// second level ntt version rlwe secret key
     second_level_ntt_rlwe_secret_key: NttRlweSecretKey<SecondLevelField>,
+    /// second level ntt table
     second_level_ntt_table: Arc<<SecondLevelField as NttField>::Table>,
     /// omr parameters
     parameters: OmrParameters,
@@ -146,7 +149,9 @@ impl SecretKeyPack {
             first_level_blind_rotation_key,
             key_switching_key,
             second_level_blind_rotation_key,
+            self.second_level_ntt_table().inv_n(),
             trace_key,
+            self.parameters.clone(),
         )
     }
 
@@ -177,7 +182,7 @@ impl SecretKeyPack {
     }
 
     #[inline]
-    pub fn intermediate_lwe_secret_key(&self) -> &LweSecretKey<LweValue> {
+    pub fn intermediate_lwe_secret_key(&self) -> &LweSecretKey<InterLweValue> {
         &self.intermediate_lwe_secret_key
     }
 
@@ -194,5 +199,11 @@ impl SecretKeyPack {
     #[inline]
     pub fn second_level_ntt_table(&self) -> &Arc<<SecondLevelField as NttField>::Table> {
         &self.second_level_ntt_table
+    }
+
+    #[inline]
+    pub fn decrypt_clue(&self, clue: &LweCiphertext<LweValue>) -> LweValue {
+        self.clue_secret_key
+            .decrypt::<LweValue, _>(clue, self.parameters.clue_params())
     }
 }
