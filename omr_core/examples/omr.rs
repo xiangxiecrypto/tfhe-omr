@@ -41,7 +41,7 @@ fn main() {
     let poly =
         result.b() - ntt_table.inverse_transform_inplace(ntt_table.transform(result.a()) * &**key);
 
-    let decrypted = poly.into_iter().map(decode).collect::<Vec<Inner>>();
+    let _decrypted = poly.into_iter().map(decode).collect::<Vec<Inner>>();
 
-    println!("{:?}", decrypted);
+    // println!("{:?}", decrypted);
 }

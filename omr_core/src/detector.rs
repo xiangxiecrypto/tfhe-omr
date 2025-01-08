@@ -63,6 +63,7 @@ impl Detector {
             intermediate_plain_modulus as usize,
         );
 
+        let start = std::time::Instant::now();
         // First level blind rotation and sum
         let intermedia = clues
             .par_iter()
@@ -71,12 +72,17 @@ impl Detector {
                 || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
                 |acc, c| acc.add_element_wise(&c),
             );
+        let end = std::time::Instant::now();
+        println!("First level blind rotation and sum time: {:?}", end - start);
 
+        let start = std::time::Instant::now();
         // Key switching
         let intermedia = self
             .detection_key
             .first_level_key_switching_key()
             .key_switch_for_rlwe(intermedia);
+        let end = std::time::Instant::now();
+        println!("Key switching time: {:?}", end - start);
 
         // Modulus switching
         let mut intermedia = lwe_modulus_switch(
@@ -123,17 +129,25 @@ impl Detector {
             output_plain_modulus as usize,
         );
 
+        let start = std::time::Instant::now();
         // Second level blind rotation
         let mut second_level_result =
             second_level_blind_rotation_key.blind_rotate(lut2, &intermedia);
+        let end = std::time::Instant::now();
+        println!("Second level blind rotation time: {:?}", end - start);
 
         // Multiply by `n_inv`
         let n_inv = self.detection_key.second_level_ring_dimension_inv();
         second_level_result.a_mut().mul_shoup_scalar_assign(n_inv);
         second_level_result.b_mut().mul_shoup_scalar_assign(n_inv);
 
+        let start = std::time::Instant::now();
         // Trace
-        self.detection_key.trace_key().trace(&second_level_result)
+        let result = self.detection_key.trace_key().trace(&second_level_result);
+        let end = std::time::Instant::now();
+        println!("Trace time: {:?}", end - start);
+
+        result
     }
 }
 

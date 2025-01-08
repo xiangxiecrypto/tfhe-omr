@@ -43,7 +43,7 @@ impl OmrParameters {
         let first_level_blind_rotation_params = GadgetRlweParameters::<FirstLevelField> {
             dimension: 1024,
             modulus: 134215681,
-            secret_key_type: RingSecretKeyType::Binary,
+            secret_key_type: RingSecretKeyType::Ternary,
             noise_standard_deviation: 3.20,
             basis: NonPowOf2ApproxSignedBasis::new(134215681, 5, None),
         };
