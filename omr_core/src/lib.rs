@@ -1,3 +1,5 @@
+//! # OMR Core
+
 mod parameters;
 
 mod lut;

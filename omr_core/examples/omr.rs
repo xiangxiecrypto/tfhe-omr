@@ -1,6 +1,5 @@
 use algebra::{ntt::NumberTheoryTransform, Field};
-use omr_core::{OmrParameters, SecondLevelField};
-use rand::Rng;
+use omr_core::{Detector, KeyGen, OmrParameters, SecondLevelField, Sender};
 
 type Inner = <SecondLevelField as Field>::ValueT; // inner type
 
@@ -17,28 +16,24 @@ fn main() {
     let mut rng = rand::thread_rng();
 
     println!("Generating secret key pack...");
-    let secret_key_pack = omr_core::KeyGen::generate_secret_key(params.clone(), &mut rng);
+    let secret_key_pack = KeyGen::generate_secret_key(params.clone(), &mut rng);
 
     println!("Generating sender and detector...");
-    let sender = omr_core::Sender::new(
+    let sender = Sender::new(
         secret_key_pack.generate_clue_key(&mut rng),
         params.clue_count(),
     );
-    let detector = omr_core::Detector::new(secret_key_pack.generate_detection_key(&mut rng));
+    let detector = Detector::new(secret_key_pack.generate_detection_key(&mut rng));
 
     println!("Generating clues...");
     let clues = sender.gen_clues(&mut rng);
 
-    println!("Decrypting test clue...");
-    let clue = clues.extract_rlwe_mode(
-        rng.gen_range(0..params.clue_count()),
-        params.clue_params().cipher_modulus,
-    );
-    let m = secret_key_pack.decrypt_clue(&clue);
-    assert_eq!(m, 0);
-
     println!("Detecting...");
+    let start = std::time::Instant::now();
     let result = detector.detect(&clues);
+    let end = std::time::Instant::now();
+    println!("Detection done");
+    println!("Detection time: {:?}", end - start);
 
     let key = secret_key_pack.second_level_ntt_rlwe_secret_key();
 

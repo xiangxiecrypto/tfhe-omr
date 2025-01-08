@@ -39,6 +39,7 @@ pub struct SecretKeyPack {
 }
 
 impl SecretKeyPack {
+    /// Creates a new [`SecretKeyPack`].
     pub fn new<R>(parameters: OmrParameters, rng: &mut R) -> Self
     where
         R: Rng + CryptoRng,
@@ -90,6 +91,7 @@ impl SecretKeyPack {
         }
     }
 
+    /// Generates a [`ClueKey`].
     #[inline]
     pub fn generate_clue_key<R>(&self, rng: &mut R) -> ClueKey
     where
@@ -100,6 +102,7 @@ impl SecretKeyPack {
         ClueKey::new(key, *params)
     }
 
+    /// Generates a [`DetectionKey`].
     pub fn generate_detection_key<R>(&self, rng: &mut R) -> DetectionKey
     where
         R: Rng + CryptoRng,
@@ -161,46 +164,55 @@ impl SecretKeyPack {
         &self.parameters
     }
 
+    /// Returns a reference to the clue secret key of this [`SecretKeyPack`].
     #[inline]
     pub fn clue_secret_key(&self) -> &LweSecretKey<LweValue> {
         &self.clue_secret_key
     }
 
+    /// Returns a reference to the first level rlwe secret key of this [`SecretKeyPack`].
     #[inline]
     pub fn first_level_rlwe_secret_key(&self) -> &RlweSecretKey<FirstLevelField> {
         &self.first_level_rlwe_secret_key
     }
 
+    /// Returns a reference to the first level ntt rlwe secret key of this [`SecretKeyPack`].
     #[inline]
     pub fn first_level_ntt_rlwe_secret_key(&self) -> &NttRlweSecretKey<FirstLevelField> {
         &self.first_level_ntt_rlwe_secret_key
     }
 
+    /// Returns a reference to the first level ntt table of this [`SecretKeyPack`].
     #[inline]
     pub fn first_level_ntt_table(&self) -> &Arc<<FirstLevelField as NttField>::Table> {
         &self.first_level_ntt_table
     }
 
+    /// Returns a reference to the intermediate lwe secret key of this [`SecretKeyPack`].
     #[inline]
     pub fn intermediate_lwe_secret_key(&self) -> &LweSecretKey<InterLweValue> {
         &self.intermediate_lwe_secret_key
     }
 
+    /// Returns a reference to the second level rlwe secret key of this [`SecretKeyPack`].
     #[inline]
     pub fn second_level_rlwe_secret_key(&self) -> &RlweSecretKey<SecondLevelField> {
         &self.second_level_rlwe_secret_key
     }
 
+    /// Returns a reference to the second level ntt rlwe secret key of this [`SecretKeyPack`].
     #[inline]
     pub fn second_level_ntt_rlwe_secret_key(&self) -> &NttRlweSecretKey<SecondLevelField> {
         &self.second_level_ntt_rlwe_secret_key
     }
 
+    /// Returns a reference to the second level ntt table of this [`SecretKeyPack`].
     #[inline]
     pub fn second_level_ntt_table(&self) -> &Arc<<SecondLevelField as NttField>::Table> {
         &self.second_level_ntt_table
     }
 
+    /// Decrypts a clue.
     #[inline]
     pub fn decrypt_clue(&self, clue: &LweCiphertext<LweValue>) -> LweValue {
         self.clue_secret_key

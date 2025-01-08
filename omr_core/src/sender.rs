@@ -3,6 +3,7 @@ use rand::{CryptoRng, Rng};
 
 use crate::{ClueKey, LweValue};
 
+/// The sender.
 pub struct Sender {
     clue_key: ClueKey,
     clue_count: usize,
@@ -18,6 +19,7 @@ impl Sender {
         }
     }
 
+    /// Generates clues.
     #[inline]
     pub fn gen_clues<R>(&self, rng: &mut R) -> CmLweCiphertext<LweValue>
     where

@@ -3,6 +3,7 @@ use rand::{CryptoRng, Rng};
 
 use crate::{LweModulus, LweValue};
 
+/// The clue key.
 pub struct ClueKey {
     key: LwePublicKeyRlweMode<LweValue>,
     params: LweParameters<LweValue, LweModulus>,
@@ -18,6 +19,7 @@ impl ClueKey {
         Self { key, params }
     }
 
+    /// Generates a clue which contains `count` 0.
     #[inline]
     pub fn gen_clues<R>(&self, count: usize, rng: &mut R) -> CmLweCiphertext<LweValue>
     where

@@ -96,31 +96,37 @@ impl OmrParameters {
         }
     }
 
+    /// Returns a reference to the clue params of this [`OmrParameters`].
     #[inline]
     pub fn clue_params(&self) -> &LweParameters<LweValue, LweModulus> {
         &self.clue_params
     }
 
+    /// Returns the clue count of this [`OmrParameters`].
     #[inline]
     pub fn clue_count(&self) -> usize {
         self.clue_count
     }
 
+    /// Returns the first level blind rotation params of this [`OmrParameters`].
     #[inline]
     pub fn first_level_blind_rotation_params(&self) -> GadgetRlweParameters<FirstLevelField> {
         self.first_level_blind_rotation_params
     }
 
+    /// Returns the first level ring dimension of this [`OmrParameters`].
     #[inline]
     pub fn first_level_ring_dimension(&self) -> usize {
         self.first_level_blind_rotation_params.dimension
     }
 
+    /// Returns the first level ring secret key type of this [`OmrParameters`].
     #[inline]
     pub fn first_level_ring_secret_key_type(&self) -> RingSecretKeyType {
         self.first_level_blind_rotation_params.secret_key_type
     }
 
+    /// Returns the first level noise distribution of this [`OmrParameters`].
     #[inline]
     pub fn first_level_noise_distribution(
         &self,
@@ -128,6 +134,7 @@ impl OmrParameters {
         self.first_level_blind_rotation_params.noise_distribution()
     }
 
+    /// Returns a reference to the first level blind rotation basis of this [`OmrParameters`].
     #[inline]
     pub fn first_level_blind_rotation_basis(
         &self,
@@ -135,6 +142,7 @@ impl OmrParameters {
         self.first_level_blind_rotation_params.basis()
     }
 
+    /// Returns the generate first level ntt table of this [`OmrParameters`].
     #[inline]
     pub fn generate_first_level_ntt_table(&self) -> <FirstLevelField as NttField>::Table {
         FirstLevelField::generate_ntt_table(
@@ -145,31 +153,37 @@ impl OmrParameters {
         .unwrap()
     }
 
+    /// Returns the first level key switching params of this [`OmrParameters`].
     #[inline]
     pub fn first_level_key_switching_params(&self) -> KeySwitchingParameters {
         self.first_level_key_switching_params
     }
 
+    /// Returns a reference to the intermediate lwe params of this [`OmrParameters`].
     #[inline]
     pub fn intermediate_lwe_params(&self) -> &LweParameters<InterLweValue, InterLweModulus> {
         &self.intermediate_lwe_params
     }
 
+    /// Returns the second level blind rotation params of this [`OmrParameters`].
     #[inline]
     pub fn second_level_blind_rotation_params(&self) -> GadgetRlweParameters<SecondLevelField> {
         self.second_level_blind_rotation_params
     }
 
+    /// Returns the second level ring dimension of this [`OmrParameters`].
     #[inline]
     pub fn second_level_ring_dimension(&self) -> usize {
         self.second_level_blind_rotation_params.dimension
     }
 
+    /// Returns the second level ring secret key type of this [`OmrParameters`].
     #[inline]
     pub fn second_level_ring_secret_key_type(&self) -> RingSecretKeyType {
         self.second_level_blind_rotation_params.secret_key_type
     }
 
+    /// Returns a reference to the second level blind rotation basis of this [`OmrParameters`].
     #[inline]
     pub fn second_level_blind_rotation_basis(
         &self,
@@ -177,6 +191,7 @@ impl OmrParameters {
         self.second_level_blind_rotation_params.basis()
     }
 
+    /// Returns the second level ring noise distribution of this [`OmrParameters`].
     #[inline]
     pub fn second_level_ring_noise_distribution(
         &self,
@@ -190,6 +205,7 @@ impl OmrParameters {
         .unwrap()
     }
 
+    /// Returns the generate second level ntt table of this [`OmrParameters`].
     #[inline]
     pub fn generate_second_level_ntt_table(&self) -> <SecondLevelField as NttField>::Table {
         SecondLevelField::generate_ntt_table(
@@ -200,11 +216,13 @@ impl OmrParameters {
         .unwrap()
     }
 
+    /// Returns the trace params of this [`OmrParameters`].
     #[inline]
     pub fn trace_params(&self) -> GadgetRlweParameters<SecondLevelField> {
         self.trace_params
     }
 
+    /// Returns the output plain modulus value of this [`OmrParameters`].
     pub fn output_plain_modulus_value(&self) -> <SecondLevelField as Field>::ValueT {
         self.output_plain_modulus_value
     }

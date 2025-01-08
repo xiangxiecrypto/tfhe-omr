@@ -14,6 +14,7 @@ pub use secret::SecretKeyPack;
 pub struct KeyGen;
 
 impl KeyGen {
+    /// Generates secret key pack.
     #[inline]
     pub fn generate_secret_key<R>(params: OmrParameters, rng: &mut R) -> SecretKeyPack
     where

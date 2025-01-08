@@ -13,16 +13,19 @@ use crate::{
     DetectionKey, FirstLevelField, InterLweValue, LookUpTable, LweValue, SecondLevelField,
 };
 
+/// The detector for OMR.
 pub struct Detector {
     detection_key: DetectionKey,
 }
 
 impl Detector {
+    /// Creates a new [`Detector`].
     #[inline]
     pub fn new(detection_key: DetectionKey) -> Self {
         Self { detection_key }
     }
 
+    /// Detects the message from the given clues.
     pub fn detect(&self, clues: &CmLweCiphertext<LweValue>) -> RlweCiphertext<SecondLevelField> {
         let params = self.detection_key.params();
         let clue_params = params.clue_params();

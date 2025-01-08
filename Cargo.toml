@@ -13,9 +13,9 @@ rand_distr = "0.4"
 itertools = "0.14"
 rayon = "1.10"
 
-algebra = { path = "../primus-fhe/algebra" }
-lattice = { path = "../primus-fhe/lattice" }
-fhe_core = { path = "../primus-fhe/fhe_core" }
+algebra = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api" }
+lattice = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api" }
+fhe_core = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api" }
 
 criterion = "0.5"
 
