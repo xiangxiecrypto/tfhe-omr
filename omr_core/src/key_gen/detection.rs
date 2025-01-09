@@ -1,7 +1,7 @@
 use algebra::{modulus::ShoupFactor, Field};
 use fhe_core::{BlindRotationKey, LweKeySwitchingKeyRlweMode, TraceKey};
 
-use crate::{FirstLevelField, LweModulus, OmrParameters, SecondLevelField};
+use crate::{ClueModulus, FirstLevelField, OmrParameters, SecondLevelField};
 
 /// tfhe omr's detection key.
 pub struct DetectionKey {
@@ -35,7 +35,7 @@ impl DetectionKey {
     }
 
     /// Returns the clue modulus of this [`DetectionKey`].
-    pub fn clue_modulus(&self) -> LweModulus {
+    pub fn clue_modulus(&self) -> ClueModulus {
         self.params.clue_params().cipher_modulus
     }
 

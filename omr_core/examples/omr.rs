@@ -1,5 +1,7 @@
 use algebra::{ntt::NumberTheoryTransform, Field};
-use omr_core::{Detector, KeyGen, OmrParameters, SecondLevelField, Sender};
+use omr_core::{KeyGen, OmrParameters, SecondLevelField};
+use tracing::{debug, Level};
+use tracing_subscriber::fmt::format::FmtSpan;
 
 type Inner = <SecondLevelField as Field>::ValueT; // inner type
 
@@ -12,28 +14,29 @@ fn decode(c: Inner) -> Inner {
 }
 
 fn main() {
+    tracing_subscriber::fmt()
+        .compact()
+        .with_span_events(FmtSpan::CLOSE)
+        .with_thread_ids(true)
+        .with_max_level(Level::TRACE)
+        .init();
+
     let params = OmrParameters::new();
     let mut rng = rand::thread_rng();
 
-    println!("Generating secret key pack...");
+    debug!("Generating secret key pack...");
     let secret_key_pack = KeyGen::generate_secret_key(params.clone(), &mut rng);
 
-    println!("Generating sender and detector...");
-    let sender = Sender::new(
-        secret_key_pack.generate_clue_key(&mut rng),
-        params.clue_count(),
-    );
-    let detector = Detector::new(secret_key_pack.generate_detection_key(&mut rng));
+    debug!("Generating sender and detector...");
+    let sender = secret_key_pack.generate_sender(&mut rng);
+    let detector = secret_key_pack.generate_detector(&mut rng);
 
-    println!("Generating clues...");
+    debug!("Generating clues...");
     let clues = sender.gen_clues(&mut rng);
 
-    println!("Detecting...");
-    let start = std::time::Instant::now();
+    debug!("Detecting...");
     let result = detector.detect(&clues);
-    let end = std::time::Instant::now();
-    println!("Detection done");
-    println!("Detection time: {:?}", end - start);
+    debug!("Detect done");
 
     let key = secret_key_pack.second_level_ntt_rlwe_secret_key();
 
@@ -41,7 +44,8 @@ fn main() {
     let poly =
         result.b() - ntt_table.inverse_transform_inplace(ntt_table.transform(result.a()) * &**key);
 
-    let _decrypted = poly.into_iter().map(decode).collect::<Vec<Inner>>();
+    let decrypted = poly.into_iter().map(decode).collect::<Vec<Inner>>();
 
-    // println!("{:?}", decrypted);
+    assert_eq!(decrypted[0], 1);
+    assert!(decrypted[1..].iter().all(|&x| x == 0));
 }

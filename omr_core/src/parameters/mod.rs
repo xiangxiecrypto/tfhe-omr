@@ -7,8 +7,8 @@ use fhe_core::{
     RingSecretKeyType,
 };
 
-pub type LweValue = u16;
-pub type LweModulus = PowOf2Modulus<LweValue>;
+pub type ClueValue = u16;
+pub type ClueModulus = PowOf2Modulus<ClueValue>;
 pub type FirstLevelField = U32FieldEval<134215681>;
 pub type InterLweValue = <FirstLevelField as Field>::ValueT;
 pub type InterLweModulus = PowOf2Modulus<InterLweValue>;
@@ -18,22 +18,22 @@ pub type OutputValue = <SecondLevelField as Field>::ValueT;
 /// Parameters for omr.
 #[derive(Clone)]
 pub struct OmrParameters {
-    clue_params: LweParameters<LweValue, LweModulus>,
+    clue_params: LweParameters<ClueValue, ClueModulus>,
     clue_count: usize,
     first_level_blind_rotation_params: GadgetRlweParameters<FirstLevelField>,
     first_level_key_switching_params: KeySwitchingParameters,
     intermediate_lwe_params: LweParameters<InterLweValue, InterLweModulus>,
     second_level_blind_rotation_params: GadgetRlweParameters<SecondLevelField>,
-    trace_params: GadgetRlweParameters<SecondLevelField>,
+    hom_trace_params: GadgetRlweParameters<SecondLevelField>,
     output_plain_modulus_value: OutputValue,
 }
 
 impl OmrParameters {
     pub fn new() -> OmrParameters {
-        let clue_params = <LweParameters<LweValue, LweModulus>>::new(
+        let clue_params = <LweParameters<ClueValue, ClueModulus>>::new(
             512,
             8,
-            <PowOf2Modulus<LweValue>>::new(2048),
+            <PowOf2Modulus<ClueValue>>::new(2048),
             LweSecretKeyType::Binary,
             0.83,
         );
@@ -91,14 +91,14 @@ impl OmrParameters {
             first_level_key_switching_params,
             intermediate_lwe_params,
             second_level_blind_rotation_params,
-            trace_params,
+            hom_trace_params: trace_params,
             output_plain_modulus_value,
         }
     }
 
     /// Returns a reference to the clue params of this [`OmrParameters`].
     #[inline]
-    pub fn clue_params(&self) -> &LweParameters<LweValue, LweModulus> {
+    pub fn clue_params(&self) -> &LweParameters<ClueValue, ClueModulus> {
         &self.clue_params
     }
 
@@ -143,6 +143,7 @@ impl OmrParameters {
     }
 
     /// Returns the generate first level ntt table of this [`OmrParameters`].
+    #[must_use]
     #[inline]
     pub fn generate_first_level_ntt_table(&self) -> <FirstLevelField as NttField>::Table {
         FirstLevelField::generate_ntt_table(
@@ -196,16 +197,11 @@ impl OmrParameters {
     pub fn second_level_ring_noise_distribution(
         &self,
     ) -> DiscreteGaussian<<SecondLevelField as Field>::ValueT> {
-        DiscreteGaussian::new(
-            0.0,
-            self.second_level_blind_rotation_params
-                .noise_standard_deviation,
-            SecondLevelField::MINUS_ONE,
-        )
-        .unwrap()
+        self.second_level_blind_rotation_params.noise_distribution()
     }
 
     /// Returns the generate second level ntt table of this [`OmrParameters`].
+    #[must_use]
     #[inline]
     pub fn generate_second_level_ntt_table(&self) -> <SecondLevelField as NttField>::Table {
         SecondLevelField::generate_ntt_table(
@@ -216,13 +212,14 @@ impl OmrParameters {
         .unwrap()
     }
 
-    /// Returns the trace params of this [`OmrParameters`].
+    /// Returns the homomorphic trace params of this [`OmrParameters`].
     #[inline]
-    pub fn trace_params(&self) -> GadgetRlweParameters<SecondLevelField> {
-        self.trace_params
+    pub fn hom_trace_params(&self) -> GadgetRlweParameters<SecondLevelField> {
+        self.hom_trace_params
     }
 
     /// Returns the output plain modulus value of this [`OmrParameters`].
+    #[inline]
     pub fn output_plain_modulus_value(&self) -> <SecondLevelField as Field>::ValueT {
         self.output_plain_modulus_value
     }

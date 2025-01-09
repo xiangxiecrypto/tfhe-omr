@@ -8,9 +8,10 @@ use fhe_core::{
     lwe_modulus_switch, lwe_modulus_switch_assign, CmLweCiphertext, LweCiphertext, RlweCiphertext,
 };
 use rayon::prelude::*;
+use tracing::{trace, trace_span};
 
 use crate::{
-    DetectionKey, FirstLevelField, InterLweValue, LookUpTable, LweValue, SecondLevelField,
+    ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, SecondLevelField,
 };
 
 /// The detector for OMR.
@@ -26,7 +27,10 @@ impl Detector {
     }
 
     /// Detects the message from the given clues.
-    pub fn detect(&self, clues: &CmLweCiphertext<LweValue>) -> RlweCiphertext<SecondLevelField> {
+    pub fn detect(&self, clues: &CmLweCiphertext<ClueValue>) -> RlweCiphertext<SecondLevelField> {
+        let span = trace_span!("detect");
+        let _enter = span.enter();
+
         let params = self.detection_key.params();
         let clue_params = params.clue_params();
         let first_level_ring_dimension = params.first_level_ring_dimension();
@@ -35,54 +39,51 @@ impl Detector {
         let clue_modulus = self.detection_key.clue_modulus();
         let first_level_blind_rotation_key = self.detection_key.first_level_blind_rotation_key();
         let intermediate_lwe_params = params.intermediate_lwe_params();
+        let intermediate_plain_modulus = intermediate_lwe_params.plain_modulus_value;
         let second_level_blind_rotation_key = self.detection_key.second_level_blind_rotation_key();
 
         // Extract clues
-        let mut clues: Vec<LweCiphertext<LweValue>> = (0..msg_count)
-            .map(|i| clues.extract_rlwe_mode(i, clue_modulus))
-            .collect();
+        let mut clues: Vec<LweCiphertext<ClueValue>> = clues.extract_all(clue_modulus);
 
         // Modulus switching
         if clue_params.cipher_modulus_value
-            != ModulusValue::PowerOf2(first_level_ring_dimension as LweValue * 2)
+            != ModulusValue::PowerOf2(first_level_ring_dimension as ClueValue * 2)
         {
-            println!("Modulus switching clues");
+            trace!("Modulus switching clues to 2*N_1");
             clues.iter_mut().for_each(|clue| {
                 lwe_modulus_switch_assign(
                     clue,
                     clue_params.cipher_modulus_value,
-                    first_level_ring_dimension as LweValue * 2,
+                    first_level_ring_dimension as ClueValue * 2,
                 );
             });
         }
 
-        let intermediate_plain_modulus = intermediate_lwe_params.plain_modulus_value; // Generate first level LUT
+        // Generate first level LUT
         let lut1 = first_level_lut(
             first_level_ring_dimension,
             clue_params.plain_modulus_value.as_into(),
             intermediate_plain_modulus as usize,
         );
 
-        let start = std::time::Instant::now();
         // First level blind rotation and sum
         let intermedia = clues
             .par_iter()
-            .map(|c| first_level_blind_rotation_key.blind_rotate(lut1.clone(), c))
+            .map(|c| {
+                let span = trace_span!("First level blind rotation");
+                let _enter = span.enter();
+                first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
+            })
             .reduce(
                 || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
                 |acc, c| acc.add_element_wise(&c),
             );
-        let end = std::time::Instant::now();
-        println!("First level blind rotation and sum time: {:?}", end - start);
 
-        let start = std::time::Instant::now();
         // Key switching
         let intermedia = self
             .detection_key
             .first_level_key_switching_key()
             .key_switch_for_rlwe(intermedia);
-        let end = std::time::Instant::now();
-        println!("Key switching time: {:?}", end - start);
 
         // Modulus switching
         let mut intermedia = lwe_modulus_switch(
@@ -112,7 +113,7 @@ impl Detector {
         if intermediate_lwe_params.cipher_modulus_value
             != ModulusValue::PowerOf2(params.second_level_ring_dimension() as InterLweValue * 2)
         {
-            println!("Modulus switching intermediate");
+            trace!("Modulus switching clues to 2*N_2");
             lwe_modulus_switch_assign(
                 &mut intermedia,
                 intermediate_lwe_params.cipher_modulus_value,
@@ -129,25 +130,20 @@ impl Detector {
             output_plain_modulus as usize,
         );
 
-        let start = std::time::Instant::now();
         // Second level blind rotation
+        let br_span = trace_span!("Second level blind rotation");
         let mut second_level_result =
-            second_level_blind_rotation_key.blind_rotate(lut2, &intermedia);
-        let end = std::time::Instant::now();
-        println!("Second level blind rotation time: {:?}", end - start);
+            br_span.in_scope(|| second_level_blind_rotation_key.blind_rotate(lut2, &intermedia));
+        // let mut second_level_result =
+        //     second_level_blind_rotation_key.blind_rotate(lut2, &intermedia);
 
         // Multiply by `n_inv`
         let n_inv = self.detection_key.second_level_ring_dimension_inv();
         second_level_result.a_mut().mul_shoup_scalar_assign(n_inv);
         second_level_result.b_mut().mul_shoup_scalar_assign(n_inv);
 
-        let start = std::time::Instant::now();
-        // Trace
-        let result = self.detection_key.trace_key().trace(&second_level_result);
-        let end = std::time::Instant::now();
-        println!("Trace time: {:?}", end - start);
-
-        result
+        // Homomorphic Trace
+        self.detection_key.trace_key().trace(&second_level_result)
     }
 }
 

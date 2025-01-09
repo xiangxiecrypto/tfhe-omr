@@ -1,7 +1,7 @@
 use fhe_core::CmLweCiphertext;
 use rand::{CryptoRng, Rng};
 
-use crate::{ClueKey, LweValue};
+use crate::{ClueKey, ClueValue};
 
 /// The sender.
 pub struct Sender {
@@ -21,7 +21,7 @@ impl Sender {
 
     /// Generates clues.
     #[inline]
-    pub fn gen_clues<R>(&self, rng: &mut R) -> CmLweCiphertext<LweValue>
+    pub fn gen_clues<R>(&self, rng: &mut R) -> CmLweCiphertext<ClueValue>
     where
         R: Rng + CryptoRng,
     {

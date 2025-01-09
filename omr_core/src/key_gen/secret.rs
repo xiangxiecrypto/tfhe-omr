@@ -7,7 +7,9 @@ use fhe_core::{
 };
 use rand::{CryptoRng, Rng};
 
-use crate::{FirstLevelField, InterLweValue, LweValue, OmrParameters, SecondLevelField};
+use crate::{
+    ClueValue, Detector, FirstLevelField, InterLweValue, OmrParameters, SecondLevelField, Sender,
+};
 
 use super::{ClueKey, DetectionKey};
 
@@ -19,7 +21,7 @@ use super::{ClueKey, DetectionKey};
 #[derive(Clone)]
 pub struct SecretKeyPack {
     /// clue secret key
-    clue_secret_key: LweSecretKey<LweValue>,
+    clue_secret_key: LweSecretKey<ClueValue>,
     /// first level rlwe secret key
     first_level_rlwe_secret_key: RlweSecretKey<FirstLevelField>,
     /// first level ntt version rlwe secret key
@@ -102,6 +104,15 @@ impl SecretKeyPack {
         ClueKey::new(key, *params)
     }
 
+    /// Generates a [`Sender`].
+    #[inline]
+    pub fn generate_sender<R>(&self, rng: &mut R) -> Sender
+    where
+        R: Rng + CryptoRng,
+    {
+        Sender::new(self.generate_clue_key(rng), self.parameters.clue_count())
+    }
+
     /// Generates a [`DetectionKey`].
     pub fn generate_detection_key<R>(&self, rng: &mut R) -> DetectionKey
     where
@@ -142,8 +153,8 @@ impl SecretKeyPack {
         let trace_key = TraceKey::new(
             self.second_level_rlwe_secret_key(),
             self.second_level_ntt_rlwe_secret_key(),
-            parameters.trace_params().basis(),
-            parameters.trace_params().noise_distribution(),
+            parameters.hom_trace_params().basis(),
+            parameters.hom_trace_params().noise_distribution(),
             Arc::clone(self.second_level_ntt_table()),
             rng,
         );
@@ -158,6 +169,15 @@ impl SecretKeyPack {
         )
     }
 
+    /// Generates a [`Detector`].
+    #[inline]
+    pub fn generate_detector<R>(&self, rng: &mut R) -> Detector
+    where
+        R: Rng + CryptoRng,
+    {
+        Detector::new(self.generate_detection_key(rng))
+    }
+
     /// Returns a reference to the parameters.
     #[inline]
     pub fn parameters(&self) -> &OmrParameters {
@@ -166,7 +186,7 @@ impl SecretKeyPack {
 
     /// Returns a reference to the clue secret key of this [`SecretKeyPack`].
     #[inline]
-    pub fn clue_secret_key(&self) -> &LweSecretKey<LweValue> {
+    pub fn clue_secret_key(&self) -> &LweSecretKey<ClueValue> {
         &self.clue_secret_key
     }
 
@@ -214,8 +234,8 @@ impl SecretKeyPack {
 
     /// Decrypts a clue.
     #[inline]
-    pub fn decrypt_clue(&self, clue: &LweCiphertext<LweValue>) -> LweValue {
+    pub fn decrypt_clue(&self, clue: &LweCiphertext<ClueValue>) -> ClueValue {
         self.clue_secret_key
-            .decrypt::<LweValue, _>(clue, self.parameters.clue_params())
+            .decrypt::<ClueValue, _>(clue, self.parameters.clue_params())
     }
 }

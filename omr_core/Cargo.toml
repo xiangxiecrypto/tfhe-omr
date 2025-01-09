@@ -7,12 +7,19 @@ edition = "2021"
 algebra = { workspace = true }
 lattice = { workspace = true }
 fhe_core = { workspace = true }
+
+tracing = { workspace = true }
 rand_core = { workspace = true }
 rand = { workspace = true }
 itertools = { workspace = true }
 rayon = { workspace = true }
 
 [dev-dependencies]
+tracing-subscriber = { version = "0.3", features = [
+    "parking_lot",
+    "time",
+    "local-time",
+] }
 criterion = { workspace = true }
 
 [[bench]]
