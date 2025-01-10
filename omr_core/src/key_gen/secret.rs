@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use algebra::NttField;
+use algebra::{modulus::ShoupFactor, ntt::NttTable, Field, NttField};
 use fhe_core::{
     BlindRotationKey, LweCiphertext, LweKeySwitchingKeyRlweMode, LwePublicKeyRlweMode,
     LweSecretKey, NttRlweSecretKey, RlweSecretKey, TraceKey,
@@ -159,11 +159,14 @@ impl SecretKeyPack {
             rng,
         );
 
+        let n = self.second_level_ntt_table().dimension();
+        let inv_n = SecondLevelField::inv(n as <SecondLevelField as Field>::ValueT);
+
         DetectionKey::new(
             first_level_blind_rotation_key,
             key_switching_key,
             second_level_blind_rotation_key,
-            self.second_level_ntt_table().inv_n(),
+            ShoupFactor::new(inv_n, SecondLevelField::MODULUS_VALUE),
             trace_key,
             self.parameters.clone(),
         )

@@ -14,13 +14,13 @@ rand_distr = "0.4"
 itertools = "0.14"
 rayon = "1.10"
 
-algebra = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api" }
-lattice = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api" }
-fhe_core = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api" }
+algebra = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api", default-features = false }
+lattice = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api", default-features = false }
+fhe_core = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api", default-features = false }
 
-# algebra = { path = "../primus-fhe/algebra" }
-# lattice = { path = "../primus-fhe/lattice" }
-# fhe_core = { path = "../primus-fhe/fhe_core" }
+# algebra = { path = "../primus-fhe/algebra", default-features = false }
+# lattice = { path = "../primus-fhe/lattice", default-features = false }
+# fhe_core = { path = "../primus-fhe/fhe_core", default-features = false }
 
 criterion = "0.5"
 

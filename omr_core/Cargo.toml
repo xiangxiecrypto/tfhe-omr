@@ -22,6 +22,15 @@ tracing-subscriber = { version = "0.3", features = [
 ] }
 criterion = { workspace = true }
 
+[features]
+default = ["concrete-ntt"]
+concrete-ntt = [
+    "algebra/concrete-ntt",
+    "lattice/concrete-ntt",
+    "fhe_core/concrete-ntt",
+]
+nightly = ["algebra/nightly", "lattice/nightly", "fhe_core/nightly"]
+
 [[bench]]
 name = "omr"
 harness = false
