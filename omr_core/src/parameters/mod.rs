@@ -45,7 +45,7 @@ impl OmrParameters {
             modulus: FirstLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
             noise_standard_deviation: 3.20,
-            basis: NonPowOf2ApproxSignedBasis::new(134215681, 5, None),
+            basis: NonPowOf2ApproxSignedBasis::new(134215681, 5, Some(4)),
         };
 
         let first_level_key_switching_params = KeySwitchingParameters {
@@ -71,7 +71,7 @@ impl OmrParameters {
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
             noise_standard_deviation: 0.4,
-            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 7, None),
+            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 7, Some(6)),
         };
 
         let trace_params = GadgetRlweParameters::<SecondLevelField> {
@@ -82,7 +82,7 @@ impl OmrParameters {
             basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 2, None),
         };
 
-        let output_plain_modulus_value = 1 << 15;
+        let output_plain_modulus_value = 1 << 13;
 
         Self {
             clue_params,

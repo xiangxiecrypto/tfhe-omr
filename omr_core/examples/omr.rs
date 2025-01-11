@@ -5,14 +5,6 @@ use tracing_subscriber::fmt::format::FmtSpan;
 
 type Inner = <SecondLevelField as Field>::ValueT; // inner type
 
-const FP: Inner = <SecondLevelField as Field>::MODULUS_VALUE; // ciphertext space
-const FT: Inner = 1 << 15; // message space
-
-#[inline]
-fn decode(c: Inner) -> Inner {
-    (c as f64 * FT as f64 / FP as f64).round() as Inner % FT
-}
-
 fn main() {
     tracing_subscriber::fmt()
         .compact()
@@ -23,6 +15,11 @@ fn main() {
 
     let params = OmrParameters::new();
     let mut rng = rand::thread_rng();
+
+    let fp = <SecondLevelField as Field>::MODULUS_VALUE;
+    let ft = params.output_plain_modulus_value();
+
+    let decode = |c: Inner| (c as f64 * ft as f64 / fp as f64).round() as Inner % ft;
 
     debug!("Generating secret key pack...");
     let secret_key_pack = KeyGen::generate_secret_key(params.clone(), &mut rng);
