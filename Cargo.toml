@@ -14,9 +14,9 @@ rand_distr = "0.4"
 itertools = "0.14"
 rayon = "1.10"
 
-algebra = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api", default-features = false }
-lattice = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api", default-features = false }
-fhe_core = { git = "https://github.com/primus-labs/primus-fhe", branch = "simplify_fhe_api", default-features = false }
+algebra = { git = "https://github.com/serendipity-crypto/primus-fhe", branch = "omr", default-features = false }
+lattice = { git = "https://github.com/serendipity-crypto/primus-fhe", branch = "omr", default-features = false }
+fhe_core = { git = "https://github.com/serendipity-crypto/primus-fhe", branch = "omr", default-features = false }
 
 # algebra = { path = "../primus-fhe/algebra", default-features = false }
 # lattice = { path = "../primus-fhe/lattice", default-features = false }

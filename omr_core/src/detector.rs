@@ -7,7 +7,6 @@ use algebra::{
 use fhe_core::{
     lwe_modulus_switch, lwe_modulus_switch_assign, CmLweCiphertext, LweCiphertext, RlweCiphertext,
 };
-use rayon::prelude::*;
 use tracing::{trace, trace_span};
 
 use crate::{
@@ -67,15 +66,26 @@ impl Detector {
         );
 
         // First level blind rotation and sum
+        // let intermedia = clues
+        //     .par_iter()
+        //     .map(|c| {
+        //         let span = trace_span!("First level blind rotation");
+        //         let _enter = span.enter();
+        //         first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
+        //     })
+        //     .reduce(
+        //         || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+        //         |acc, c| acc.add_element_wise(&c),
+        //     );
         let intermedia = clues
-            .par_iter()
+            .iter()
             .map(|c| {
                 let span = trace_span!("First level blind rotation");
                 let _enter = span.enter();
                 first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
             })
-            .reduce(
-                || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+            .fold(
+                <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
                 |acc, c| acc.add_element_wise(&c),
             );
 
