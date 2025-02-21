@@ -1,16 +1,22 @@
 use algebra::{
-    integer::AsInto,
-    polynomial::FieldPolynomial,
+    integer::{AsFrom, AsInto},
+    ntt::{NttTable, NumberTheoryTransform},
+    polynomial::{FieldNttPolynomial, FieldPolynomial},
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
     Field,
 };
 use fhe_core::{
     lwe_modulus_switch, lwe_modulus_switch_assign, CmLweCiphertext, LweCiphertext, RlweCiphertext,
 };
+use lattice::NttRlwe;
+use num_traits::{ConstOne, Zero};
+use rand::prelude::Distribution;
+use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tracing::{trace, trace_span};
 
 use crate::{
-    ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, SecondLevelField,
+    ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, RetrievalParams,
+    SecondLevelField,
 };
 
 /// The detector for OMR.
@@ -66,28 +72,28 @@ impl Detector {
         );
 
         // First level blind rotation and sum
-        // let intermedia = clues
-        //     .par_iter()
-        //     .map(|c| {
-        //         let span = trace_span!("First level blind rotation");
-        //         let _enter = span.enter();
-        //         first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
-        //     })
-        //     .reduce(
-        //         || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
-        //         |acc, c| acc.add_element_wise(&c),
-        //     );
         let intermedia = clues
-            .iter()
+            .par_iter()
             .map(|c| {
                 let span = trace_span!("First level blind rotation");
                 let _enter = span.enter();
                 first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
             })
-            .fold(
-                <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+            .reduce(
+                || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
                 |acc, c| acc.add_element_wise(&c),
             );
+        // let intermedia = clues
+        //     .iter()
+        //     .map(|c| {
+        //         let span = trace_span!("First level blind rotation");
+        //         let _enter = span.enter();
+        //         first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
+        //     })
+        //     .fold(
+        //         <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+        //         |acc, c| acc.add_element_wise(&c),
+        //     );
 
         // Key switching
         let intermedia = self
@@ -154,6 +160,69 @@ impl Detector {
 
         // Homomorphic Trace
         self.detection_key.trace_key().trace(&second_level_result)
+    }
+
+    pub fn generate_retrieval_ciphertext(
+        &self,
+        retrieval_params: RetrievalParams<SecondLevelField>,
+        detect_list: &[RlweCiphertext<SecondLevelField>],
+    ) -> NttRlwe<SecondLevelField> {
+        let ntt_table = self
+            .detection_key
+            .second_level_blind_rotation_key()
+            .ntt_table();
+        let polynomial_size = retrieval_params.polynomial_size();
+        assert_eq!(polynomial_size, ntt_table.dimension());
+
+        let slots_per_budget = retrieval_params.slots_per_budget();
+        let slots_per_retrieval = retrieval_params.slots_per_retrieval();
+        let budget_distr = retrieval_params.budget_distr();
+
+        let index_slots_per_budget = slots_per_budget - 1;
+        let index_modulus = retrieval_params.index_modulus();
+
+        let mask = index_modulus - 1;
+        let shift_bits = index_modulus.trailing_zeros();
+
+        let mut rng = rand::thread_rng();
+
+        let mut poly: FieldPolynomial<SecondLevelField> = FieldPolynomial::zero(polynomial_size);
+        let mut ntt_poly: FieldNttPolynomial<SecondLevelField> =
+            FieldNttPolynomial::zero(polynomial_size);
+
+        let mut ciphertext: NttRlwe<SecondLevelField> = NttRlwe::zero(polynomial_size);
+        let mut temp: NttRlwe<SecondLevelField> = NttRlwe::zero(polynomial_size);
+
+        detect_list.iter().enumerate().for_each(|(i, detect)| {
+            poly.set_zero();
+
+            poly.as_mut_slice()
+                .chunks_exact_mut(slots_per_retrieval)
+                .zip(budget_distr.sample_iter(&mut rng))
+                .for_each(
+                    |(chunk, budget_index): (&mut [<SecondLevelField as Field>::ValueT], usize)| {
+                        let mut i: <SecondLevelField as Field>::ValueT = AsFrom::as_from(i);
+                        let address = budget_index * slots_per_budget;
+
+                        let mut k = 0;
+                        while !i.is_zero() {
+                            chunk[address + k] = i & mask;
+                            i >>= shift_bits;
+                            k += 1;
+                        }
+
+                        chunk[address + index_slots_per_budget] = ConstOne::ONE;
+                    },
+                );
+
+            ntt_poly.copy_from(&poly);
+            ntt_table.transform_slice(ntt_poly.as_mut_slice());
+
+            detect.mul_ntt_polynomial_inplace(&ntt_poly, ntt_table, &mut temp);
+            ciphertext.add_assign_element_wise(&temp);
+        });
+
+        ciphertext
     }
 }
 
