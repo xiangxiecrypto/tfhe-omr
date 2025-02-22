@@ -189,4 +189,10 @@ impl<F: NttField> Retriever<F> {
             Err(())
         }
     }
+
+    /// Returns the retrieval parameters.
+    #[inline]
+    pub fn params(&self) -> RetrievalParams<F> {
+        self.params
+    }
 }

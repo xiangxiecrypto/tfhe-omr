@@ -8,7 +8,8 @@ use fhe_core::{
 use rand::{CryptoRng, Rng};
 
 use crate::{
-    ClueValue, Detector, FirstLevelField, InterLweValue, OmrParameters, SecondLevelField, Sender,
+    ClueValue, Detector, FirstLevelField, InterLweValue, OmrParameters, RetrievalParams, Retriever,
+    SecondLevelField, Sender,
 };
 
 use super::{ClueKey, DetectionKey};
@@ -179,6 +180,27 @@ impl SecretKeyPack {
         R: Rng + CryptoRng,
     {
         Detector::new(self.generate_detection_key(rng))
+    }
+
+    pub fn generate_retriever(
+        &self,
+        all_payloads_count: usize,
+        pertinent_count: usize,
+    ) -> Retriever<SecondLevelField> {
+        let params = self.parameters();
+        let retrieval_params: RetrievalParams<SecondLevelField> = RetrievalParams::new(
+            params.output_plain_modulus_value(),
+            params.second_level_ring_dimension(),
+            all_payloads_count,
+            pertinent_count,
+            130,
+            25,
+        );
+        Retriever::new(
+            retrieval_params,
+            Arc::clone(self.second_level_ntt_table()),
+            self.second_level_ntt_rlwe_secret_key().clone(),
+        )
     }
 
     /// Returns a reference to the parameters.

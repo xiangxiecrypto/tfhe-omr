@@ -3,7 +3,7 @@ use std::{collections::HashSet, time::Instant};
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::Rlwe;
-use omr_core::{KeyGen, OmrParameters, RetrievalParams, Retriever, SecondLevelField};
+use omr_core::{KeyGen, OmrParameters, SecondLevelField};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
 use tracing::{debug, info, Level};
@@ -23,9 +23,6 @@ fn main() {
     debug!("Generating secret key pack...");
     let secret_key_pack = KeyGen::generate_secret_key(params.clone(), &mut rng);
     let secret_key_pack2 = KeyGen::generate_secret_key(params.clone(), &mut rng);
-
-    let ntt_table = secret_key_pack.second_level_ntt_table();
-    let key = secret_key_pack.second_level_ntt_rlwe_secret_key();
 
     debug!("Generating sender and detector...");
     let sender = secret_key_pack.generate_sender(&mut rng);
@@ -90,16 +87,8 @@ fn main() {
     let end = Instant::now();
     info!("detect times: {:?}", end - start);
 
-    let retrieval_params: RetrievalParams<SecondLevelField> = RetrievalParams::new(
-        params.output_plain_modulus_value(),
-        params.second_level_ring_dimension(),
-        all_payloads_count,
-        pertinent_count,
-        130,
-        25,
-    );
-
-    let mut retriever = Retriever::new(retrieval_params, ntt_table.clone(), key.clone());
+    let mut retriever = secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
+    let retrieval_params = retriever.params();
 
     let retrieval_start = Instant::now();
     debug!("Start retrieval...");
