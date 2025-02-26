@@ -63,7 +63,7 @@ impl OmrParameters {
             32,
             <PowOf2Modulus<InterLweValue>>::new(4096),
             LweSecretKeyType::Binary,
-            9.15,
+            8.44,
         );
 
         let second_level_blind_rotation_params = GadgetRlweParameters::<SecondLevelField> {
