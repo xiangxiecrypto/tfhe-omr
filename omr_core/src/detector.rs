@@ -224,10 +224,16 @@ impl Detector {
 
         ciphertext
     }
+
+    /// Returns a reference to the detection key of this [`Detector`].
+    #[inline]
+    pub fn detection_key(&self) -> &DetectionKey {
+        &self.detection_key
+    }
 }
 
 /// init lut for first level bootstrapping.
-fn first_level_lut(
+pub fn first_level_lut(
     rlwe_dimension: usize,
     input_plain_modulus: usize,
     output_plain_modulus: usize,
@@ -249,7 +255,7 @@ fn first_level_lut(
 }
 
 /// init lut for second level bootstrapping.
-fn second_level_lut(
+pub fn second_level_lut(
     rlwe_dimension: usize,
     clue_count: usize,
     input_plain_modulus: usize,

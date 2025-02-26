@@ -36,3 +36,7 @@ nightly = ["algebra/nightly", "lattice/nightly", "fhe_core/nightly"]
 [[bench]]
 name = "omr"
 harness = false
+
+[[bench]]
+name = "two_level_bs"
+harness = false
