@@ -30,8 +30,8 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    // let all_payloads_count: usize = 1 << 15;
-    let all_payloads_count: usize = 1 << 9;
+    let all_payloads_count: usize = 1 << 15;
+    // let all_payloads_count: usize = 1 << 9;
     let pertinent_count = 50;
 
     let mut pertinent = vec![false; all_payloads_count];
@@ -93,7 +93,7 @@ fn main() {
     let retrieval_start = Instant::now();
     debug!("Start retrieval...");
 
-    let retrieval_set;
+    let retrieval_set: HashSet<usize>;
     let mut times = 0;
 
     loop {
@@ -109,6 +109,11 @@ fn main() {
 
         times += 1;
         if times == retrieval_params.max_retrieve_cipher_count() {
+            let set = retriever.retrieval_set();
+            println!(
+                "difference: {:?}",
+                set.difference(&pertinent_set).collect::<Vec<_>>()
+            );
             panic!("retrieval failed");
         }
     }

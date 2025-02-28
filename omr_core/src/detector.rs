@@ -99,7 +99,7 @@ impl Detector {
         let intermedia = self
             .detection_key
             .first_level_key_switching_key()
-            .key_switch_for_rlwe(intermedia);
+            .key_switch(&intermedia.extract_lwe_locally(), FirstLevelField::MODULUS);
 
         // Modulus switching
         let mut intermedia = lwe_modulus_switch(

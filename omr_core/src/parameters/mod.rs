@@ -35,7 +35,7 @@ impl OmrParameters {
             8,
             <PowOf2Modulus<ClueValue>>::new(2048),
             LweSecretKeyType::Binary,
-            0.83,
+            0.8293,
         );
 
         let clue_count = 7;
@@ -44,33 +44,33 @@ impl OmrParameters {
             dimension: 1024,
             modulus: FirstLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
-            noise_standard_deviation: 3.20,
+            noise_standard_deviation: 3.1859,
             basis: NonPowOf2ApproxSignedBasis::new(134215681, 5, Some(4)),
         };
 
         let first_level_key_switching_params = KeySwitchingParameters {
             input_cipher_dimension: 1024,
-            output_cipher_dimension: 1024,
+            output_cipher_dimension: 670,
             log_modulus: <FirstLevelField as Field>::ValueT::BITS
                 - first_level_blind_rotation_params.modulus.leading_zeros(),
-            log_basis: 10,
+            log_basis: 1,
             reverse_length: None,
-            noise_standard_deviation: 4.49,
+            noise_standard_deviation: 2.0329 * (2.0f64.powf(10.0)),
         };
 
         let intermediate_lwe_params = <LweParameters<InterLweValue, InterLweModulus>>::new(
-            1024,
+            670,
             32,
             <PowOf2Modulus<InterLweValue>>::new(4096),
             LweSecretKeyType::Binary,
-            8.44,
+            10.3260,
         );
 
         let second_level_blind_rotation_params = GadgetRlweParameters::<SecondLevelField> {
             dimension: 2048,
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
-            noise_standard_deviation: 0.4,
+            noise_standard_deviation: 0.3908,
             basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 7, Some(6)),
         };
 
@@ -78,7 +78,7 @@ impl OmrParameters {
             dimension: 2048,
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
-            noise_standard_deviation: 0.4,
+            noise_standard_deviation: 0.3908,
             basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 2, None),
         };
 

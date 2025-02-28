@@ -195,4 +195,10 @@ impl<F: NttField> Retriever<F> {
     pub fn params(&self) -> RetrievalParams<F> {
         self.params
     }
+
+    /// Returns a reference to the retrieval set of this [`Retriever<F>`].
+    #[inline]
+    pub fn retrieval_set(&self) -> &HashSet<usize> {
+        &self.retrieval_set
+    }
 }

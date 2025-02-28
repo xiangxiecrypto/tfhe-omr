@@ -2,8 +2,8 @@ use std::sync::Arc;
 
 use algebra::{modulus::ShoupFactor, ntt::NttTable, Field, NttField};
 use fhe_core::{
-    BlindRotationKey, LweCiphertext, LweKeySwitchingKeyRlweMode, LwePublicKeyRlweMode,
-    LweSecretKey, NttRlweSecretKey, RlweSecretKey, TraceKey,
+    BlindRotationKey, LweCiphertext, LwePublicKeyRlweMode, LweSecretKey,
+    NonPowOf2LweKeySwitchingKey, NttRlweSecretKey, RlweSecretKey, TraceKey,
 };
 use rand::{CryptoRng, Rng};
 
@@ -132,12 +132,16 @@ impl SecretKeyPack {
 
         let key_switching_key = {
             let s_in = self.first_level_rlwe_secret_key();
-            let s_out = self.intermediate_lwe_secret_key();
-            LweKeySwitchingKeyRlweMode::generate(
+            let s_in = LweSecretKey::<<FirstLevelField as Field>::ValueT>::from_rlwe_secret_key(
                 s_in,
+                <FirstLevelField as Field>::MODULUS_VALUE - 1,
+            );
+            let s_out = self.intermediate_lwe_secret_key();
+            NonPowOf2LweKeySwitchingKey::<<FirstLevelField as Field>::ValueT>::generate(
+                &s_in,
                 s_out,
                 parameters.first_level_key_switching_params(),
-                Arc::clone(self.first_level_ntt_table()),
+                <FirstLevelField as Field>::MODULUS,
                 rng,
             )
         };

@@ -1,12 +1,12 @@
 use algebra::{modulus::ShoupFactor, Field};
-use fhe_core::{BlindRotationKey, LweKeySwitchingKeyRlweMode, TraceKey};
+use fhe_core::{BlindRotationKey, NonPowOf2LweKeySwitchingKey, TraceKey};
 
 use crate::{ClueModulus, FirstLevelField, OmrParameters, SecondLevelField};
 
 /// tfhe omr's detection key.
 pub struct DetectionKey {
     first_level_blind_rotation_key: BlindRotationKey<FirstLevelField>,
-    first_level_key_switching_key: LweKeySwitchingKeyRlweMode<FirstLevelField>,
+    first_level_key_switching_key: NonPowOf2LweKeySwitchingKey<<FirstLevelField as Field>::ValueT>,
     second_level_blind_rotation_key: BlindRotationKey<SecondLevelField>,
     second_level_ring_dimension_inv: ShoupFactor<<SecondLevelField as Field>::ValueT>,
     trace_key: TraceKey<SecondLevelField>,
@@ -18,7 +18,9 @@ impl DetectionKey {
     #[inline]
     pub fn new(
         first_level_blind_rotation_key: BlindRotationKey<FirstLevelField>,
-        first_level_key_switching_key: LweKeySwitchingKeyRlweMode<FirstLevelField>,
+        first_level_key_switching_key: NonPowOf2LweKeySwitchingKey<
+            <FirstLevelField as Field>::ValueT,
+        >,
         second_level_blind_rotation_key: BlindRotationKey<SecondLevelField>,
         second_level_ring_dimension_inv: ShoupFactor<<SecondLevelField as Field>::ValueT>,
         trace_key: TraceKey<SecondLevelField>,
@@ -45,7 +47,9 @@ impl DetectionKey {
     }
 
     /// Returns a reference to the first level key switching key of this [`DetectionKey`].
-    pub fn first_level_key_switching_key(&self) -> &LweKeySwitchingKeyRlweMode<FirstLevelField> {
+    pub fn first_level_key_switching_key(
+        &self,
+    ) -> &NonPowOf2LweKeySwitchingKey<<FirstLevelField as Field>::ValueT> {
         &self.first_level_key_switching_key
     }
 

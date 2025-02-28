@@ -1,6 +1,7 @@
 use algebra::{
     integer::AsInto,
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
+    Field,
 };
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use fhe_core::{lwe_modulus_switch, lwe_modulus_switch_assign, LweCiphertext, RlweCiphertext};
@@ -78,7 +79,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     // Key switching
     let intermedia = detection_key
         .first_level_key_switching_key()
-        .key_switch_for_rlwe(intermedia);
+        .key_switch(&intermedia.extract_lwe_locally(), FirstLevelField::MODULUS);
 
     // Modulus switching
     let mut intermedia = lwe_modulus_switch(
