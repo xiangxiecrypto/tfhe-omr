@@ -1,6 +1,6 @@
 [workspace]
 
-members = ["omr_core"]
+members = ["omr_core", "omr_core2"]
 
 resolver = "2"
 
