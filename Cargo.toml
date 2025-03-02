@@ -22,7 +22,7 @@ fhe_core = { git = "https://github.com/serendipity-crypto/primus-fhe", branch = 
 # lattice = { path = "../primus-fhe/lattice", default-features = false }
 # fhe_core = { path = "../primus-fhe/fhe_core", default-features = false }
 
-criterion = "0.5"
+criterion2 = "3.0.0"
 
 [profile.bench]
 lto = true

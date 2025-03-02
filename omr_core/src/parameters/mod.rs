@@ -102,6 +102,12 @@ impl OmrParameters {
         &self.clue_params
     }
 
+    /// Returns the clue plain modulus value of this [`OmrParameters`].
+    #[inline]
+    pub fn clue_plain_modulus_value(&self) -> ClueValue {
+        self.clue_params.plain_modulus_value
+    }
+
     /// Returns the clue count of this [`OmrParameters`].
     #[inline]
     pub fn clue_count(&self) -> usize {
@@ -164,6 +170,12 @@ impl OmrParameters {
     #[inline]
     pub fn intermediate_lwe_params(&self) -> &LweParameters<InterLweValue, InterLweModulus> {
         &self.intermediate_lwe_params
+    }
+
+    /// Returns the intermediate lwe plain modulus value of this [`OmrParameters`].
+    #[inline]
+    pub fn intermediate_lwe_plain_modulus_value(&self) -> InterLweValue {
+        self.intermediate_lwe_params.plain_modulus_value
     }
 
     /// Returns the second level blind rotation params of this [`OmrParameters`].

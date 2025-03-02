@@ -11,7 +11,7 @@ default = []
 nightly = ["tfhe/nightly-avx512"]
 
 [dev-dependencies]
-criterion = { workspace = true }
+criterion2 = { workspace = true }
 
 [[bench]]
 name = "two_level_bs"

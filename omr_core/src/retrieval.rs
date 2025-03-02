@@ -1,4 +1,4 @@
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{collections::HashSet, sync::Arc};
 
 use algebra::{
     integer::{AsInto, Bits},
@@ -40,6 +40,7 @@ pub struct RetrievalParams<F: NttField> {
 }
 
 impl<F: NttField> RetrievalParams<F> {
+    /// Creates a new [`RetrievalParams<F>`].
     pub fn new(
         index_modulus: F::ValueT,
         polynomial_size: usize,
@@ -116,6 +117,7 @@ impl<F: NttField> RetrievalParams<F> {
     }
 }
 
+#[derive(Clone)]
 pub struct Retriever<F: NttField> {
     params: RetrievalParams<F>,
     ntt_table: Arc<<F as NttField>::Table>,
@@ -124,6 +126,8 @@ pub struct Retriever<F: NttField> {
 }
 
 impl<F: NttField> Retriever<F> {
+    /// Creates a new [`Retriever<F>`].
+    #[inline]
     pub fn new(
         params: RetrievalParams<F>,
         ntt_table: Arc<<F as NttField>::Table>,
@@ -137,7 +141,7 @@ impl<F: NttField> Retriever<F> {
         }
     }
 
-    pub fn retrieve(&mut self, retrieval_ciphertext: &NttRlwe<F>) -> Result<HashSet<usize>, ()> {
+    pub fn retrieve(&mut self, retrieval_ciphertext: &NttRlwe<F>) -> Result<usize, ()> {
         let slots_per_budget = self.params.slots_per_budget;
         let slots_per_retrieval = self.params.slots_per_retrieval;
         let index_modulus = self.params.index_modulus;
@@ -151,8 +155,6 @@ impl<F: NttField> Retriever<F> {
             let t: F::ValueT = (AsInto::<f64>::as_into(c) * ft / fp).round().as_into();
             t % index_modulus
         };
-
-        let per_retrieval_start = Instant::now();
 
         let decrypted_ntt =
             retrieval_ciphertext.b() - retrieval_ciphertext.a().clone() * &*self.key;
@@ -177,14 +179,8 @@ impl<F: NttField> Retriever<F> {
             });
         });
 
-        let per_retrieval_end = Instant::now();
-        tracing::debug!(
-            "Per retrieval time: {:?}",
-            per_retrieval_end - per_retrieval_start
-        );
-
         if self.retrieval_set.len() == self.params.pertinent_count {
-            Ok(self.retrieval_set.clone())
+            Ok(self.params.pertinent_count)
         } else {
             Err(())
         }

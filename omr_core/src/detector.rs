@@ -11,8 +11,6 @@ use fhe_core::{
 use lattice::NttRlwe;
 use num_traits::{ConstOne, Zero};
 use rand::prelude::Distribution;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-use tracing::{trace, trace_span};
 
 use crate::{
     ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, RetrievalParams,
@@ -22,78 +20,86 @@ use crate::{
 /// The detector for OMR.
 pub struct Detector {
     detection_key: DetectionKey,
+    first_level_lut: FieldPolynomial<FirstLevelField>,
+    second_level_lut: FieldPolynomial<SecondLevelField>,
 }
 
 impl Detector {
     /// Creates a new [`Detector`].
     #[inline]
     pub fn new(detection_key: DetectionKey) -> Self {
-        Self { detection_key }
+        let params = detection_key.params();
+
+        let clue_count = params.clue_count();
+        let clue_plain_modulus_value = params.clue_plain_modulus_value().as_into();
+        let first_level_ring_dimension = params.first_level_ring_dimension();
+        let intermediate_lwe_plain_modulus =
+            params.intermediate_lwe_plain_modulus_value().as_into();
+        let second_level_ring_dimension = params.second_level_ring_dimension();
+        let output_plain_modulus_value = params.output_plain_modulus_value().as_into();
+
+        Self {
+            detection_key,
+            first_level_lut: first_level_lut(
+                first_level_ring_dimension,
+                clue_plain_modulus_value,
+                intermediate_lwe_plain_modulus,
+            ),
+            second_level_lut: second_level_lut(
+                second_level_ring_dimension,
+                clue_count,
+                intermediate_lwe_plain_modulus,
+                output_plain_modulus_value,
+            ),
+        }
     }
 
     /// Detects the message from the given clues.
     pub fn detect(&self, clues: &CmLweCiphertext<ClueValue>) -> RlweCiphertext<SecondLevelField> {
-        let span = trace_span!("detect");
-        let _enter = span.enter();
-
         let params = self.detection_key.params();
-        let clue_params = params.clue_params();
-        let first_level_ring_dimension = params.first_level_ring_dimension();
 
         let msg_count = clues.msg_count();
-        let clue_modulus = self.detection_key.clue_modulus();
-        let first_level_blind_rotation_key = self.detection_key.first_level_blind_rotation_key();
-        let intermediate_lwe_params = params.intermediate_lwe_params();
-        let intermediate_plain_modulus = intermediate_lwe_params.plain_modulus_value;
-        let second_level_blind_rotation_key = self.detection_key.second_level_blind_rotation_key();
 
         // Extract clues
-        let mut clues: Vec<LweCiphertext<ClueValue>> = clues.extract_all(clue_modulus);
+        let mut clues: Vec<LweCiphertext<ClueValue>> =
+            clues.extract_all(self.detection_key.clue_modulus());
 
-        // Modulus switching
-        if clue_params.cipher_modulus_value
+        let clue_params_cipher_modulus_value = params.clue_params().cipher_modulus_value;
+        let first_level_ring_dimension = params.first_level_ring_dimension();
+
+        // Modulus switching to `2 * N_1`
+        if clue_params_cipher_modulus_value
             != ModulusValue::PowerOf2(first_level_ring_dimension as ClueValue * 2)
         {
-            trace!("Modulus switching clues to 2*N_1");
             clues.iter_mut().for_each(|clue| {
                 lwe_modulus_switch_assign(
                     clue,
-                    clue_params.cipher_modulus_value,
+                    clue_params_cipher_modulus_value,
                     first_level_ring_dimension as ClueValue * 2,
                 );
             });
         }
 
-        // Generate first level LUT
-        let lut1 = first_level_lut(
-            first_level_ring_dimension,
-            clue_params.plain_modulus_value.as_into(),
-            intermediate_plain_modulus as usize,
-        );
+        let first_level_blind_rotation_key = self.detection_key.first_level_blind_rotation_key();
 
         // First level blind rotation and sum
-        let intermedia = clues
-            .par_iter()
-            .map(|c| {
-                let span = trace_span!("First level blind rotation");
-                let _enter = span.enter();
-                first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
-            })
-            .reduce(
-                || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
-                |acc, c| acc.add_element_wise(&c),
-            );
+        // use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
         // let intermedia = clues
-        //     .iter()
+        //     .par_iter()
         //     .map(|c| {
         //         let span = trace_span!("First level blind rotation");
         //         let _enter = span.enter();
         //         first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
         //     })
-        //     .fold(
-        //         <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+        //     .reduce(
+        //         || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
         //         |acc, c| acc.add_element_wise(&c),
         //     );
+        let intermedia = clues
+            .iter()
+            .map(|c| first_level_blind_rotation_key.blind_rotate(self.first_level_lut.clone(), c))
+            .reduce(|acc, ele| acc.add_element_wise(&ele))
+            .unwrap_or_else(|| <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension));
 
         // Key switching
         let intermedia = self
@@ -101,20 +107,23 @@ impl Detector {
             .first_level_key_switching_key()
             .key_switch(&intermedia.extract_lwe_locally(), FirstLevelField::MODULUS);
 
+        let intermediate_lwe_params = params.intermediate_lwe_params();
+        let intermediate_cipher_modulus_value = intermediate_lwe_params.cipher_modulus_value;
+        let intermediate_cipher_modulus = intermediate_lwe_params.cipher_modulus;
+        let intermediate_plain_modulus_value = intermediate_lwe_params.plain_modulus_value;
+
         // Modulus switching
         let mut intermedia = lwe_modulus_switch(
             &intermedia,
             params.first_level_blind_rotation_params().modulus,
-            intermediate_lwe_params.cipher_modulus_value,
+            intermediate_cipher_modulus_value,
         );
 
-        let log_plain_modulus = intermediate_lwe_params.plain_modulus_value.trailing_zeros();
-
-        let cipher_modulus = intermediate_lwe_params.cipher_modulus;
+        let log_plain_modulus = intermediate_plain_modulus_value.trailing_zeros();
 
         // Add `msg_count`
         let scale = (msg_count as InterLweValue) * {
-            match intermediate_lwe_params.cipher_modulus_value {
+            match intermediate_cipher_modulus_value {
                 ModulusValue::Native => 1 << (InterLweValue::BITS - log_plain_modulus),
                 ModulusValue::PowerOf2(q) => q >> log_plain_modulus,
                 ModulusValue::Prime(q) | ModulusValue::Others(q) => {
@@ -123,35 +132,27 @@ impl Detector {
                 }
             }
         };
-        cipher_modulus.reduce_add_assign(intermedia.b_mut(), cipher_modulus.reduce(scale));
+        intermediate_cipher_modulus.reduce_add_assign(
+            intermedia.b_mut(),
+            intermediate_cipher_modulus.reduce(scale),
+        );
 
         // Modulus switching
-        if intermediate_lwe_params.cipher_modulus_value
+        if intermediate_cipher_modulus_value
             != ModulusValue::PowerOf2(params.second_level_ring_dimension() as InterLweValue * 2)
         {
-            trace!("Modulus switching clues to 2*N_2");
             lwe_modulus_switch_assign(
                 &mut intermedia,
-                intermediate_lwe_params.cipher_modulus_value,
+                intermediate_cipher_modulus_value,
                 params.second_level_ring_dimension() as InterLweValue * 2,
             );
         }
 
-        let output_plain_modulus = params.output_plain_modulus_value();
-        // Generate second level LUT
-        let lut2 = second_level_lut(
-            params.second_level_ring_dimension(),
-            msg_count,
-            intermediate_lwe_params.plain_modulus_value as usize,
-            output_plain_modulus as usize,
-        );
-
         // Second level blind rotation
-        let br_span = trace_span!("Second level blind rotation");
-        let mut second_level_result =
-            br_span.in_scope(|| second_level_blind_rotation_key.blind_rotate(lut2, &intermedia));
-        // let mut second_level_result =
-        //     second_level_blind_rotation_key.blind_rotate(lut2, &intermedia);
+        let mut second_level_result = self
+            .detection_key
+            .second_level_blind_rotation_key()
+            .blind_rotate(self.second_level_lut.clone(), &intermedia);
 
         // Multiply by `n_inv`
         let n_inv = self.detection_key.second_level_ring_dimension_inv();
@@ -229,6 +230,18 @@ impl Detector {
     #[inline]
     pub fn detection_key(&self) -> &DetectionKey {
         &self.detection_key
+    }
+
+    /// Returns a reference to the first level lut of this [`Detector`].
+    #[inline]
+    pub fn first_level_lut(&self) -> &FieldPolynomial<FirstLevelField> {
+        &self.first_level_lut
+    }
+
+    /// Returns a reference to the second level lut of this [`Detector`].
+    #[inline]
+    pub fn second_level_lut(&self) -> &FieldPolynomial<SecondLevelField> {
+        &self.second_level_lut
     }
 }
 

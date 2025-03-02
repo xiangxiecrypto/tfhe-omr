@@ -9,20 +9,21 @@ lattice = { workspace = true }
 fhe_core = { workspace = true }
 
 num-traits = { workspace = true }
-tracing = { workspace = true }
+
 rand_core = { workspace = true }
 rand = { workspace = true }
 itertools = { workspace = true }
 rayon = { workspace = true }
 
 [dev-dependencies]
+tracing = { workspace = true }
 tracing-subscriber = { version = "0.3", features = [
     "parking_lot",
     "time",
     "local-time",
 ] }
 indicatif = { version = "0.17.9", features = ["rayon"] }
-criterion = { workspace = true }
+criterion2 = { workspace = true }
 
 [features]
 default = ["concrete-ntt"]

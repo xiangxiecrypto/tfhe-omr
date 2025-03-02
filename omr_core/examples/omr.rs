@@ -17,6 +17,11 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
+    rayon::ThreadPoolBuilder::new()
+        .num_threads(1)
+        .build_global()
+        .unwrap();
+
     let params = OmrParameters::new();
     let mut rng = rand::thread_rng();
 
@@ -30,9 +35,13 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    let all_payloads_count: usize = 1 << 15;
-    // let all_payloads_count: usize = 1 << 9;
-    let pertinent_count = 50;
+    // let all_payloads_count: usize = 1 << 15;
+    let all_payloads_count: usize = 1;
+    let pertinent_count = if all_payloads_count <= 50 {
+        all_payloads_count
+    } else {
+        50
+    };
 
     let mut pertinent = vec![false; all_payloads_count];
     pertinent[0..pertinent_count]
@@ -47,8 +56,8 @@ fn main() {
         }
     });
 
-    let start = Instant::now();
     debug!("Generating clues...");
+    let start = Instant::now();
     let clues_list: Vec<CmLweCiphertext<u16>> = pertinent
         .par_iter()
         .map_init(
@@ -75,52 +84,46 @@ fn main() {
 
     pb.set_style(sty);
 
-    let start = Instant::now();
     debug!("Detecting...");
+    let start = Instant::now();
     let detect_list: Vec<Rlwe<SecondLevelField>> = clues_list
         .par_iter()
         .progress_with(pb.clone())
         .map(|clues| detector.detect(clues))
         .collect();
     pb.finish();
-    debug!("Detect done");
     let end = Instant::now();
-    info!("detect times: {:?}", end - start);
+    debug!("Detect done");
+    info!("detect time: {:?}", end - start);
+    info!(
+        "detect time per message: {:?}",
+        (end - start) / all_payloads_count as u32
+    );
 
     let mut retriever = secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
     let retrieval_params = retriever.params();
 
-    let retrieval_start = Instant::now();
-    debug!("Start retrieval...");
+    let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
 
-    let retrieval_set: HashSet<usize>;
-    let mut times = 0;
+    let compress_start = Instant::now();
+    let ciphertexts: Vec<_> = (0..max_retrieve_cipher_count)
+        .map(|_| detector.generate_retrieval_ciphertext(retrieval_params, &detect_list))
+        .collect();
+    let compress_end = Instant::now();
+    info!("compress times: {:?}", compress_end - compress_start);
+    info!(
+        "compress times per ciphertext: {:?}",
+        (compress_end - compress_start) / max_retrieve_cipher_count as u32
+    );
 
-    loop {
-        let ciphertext = detector.generate_retrieval_ciphertext(retrieval_params, &detect_list);
-
-        match retriever.retrieve(&ciphertext) {
-            Ok(set) => {
-                retrieval_set = set;
-                break;
-            }
-            Err(_) => {}
-        }
-
-        times += 1;
-        if times == retrieval_params.max_retrieve_cipher_count() {
-            let set = retriever.retrieval_set();
-            println!(
-                "difference: {:?}",
-                set.difference(&pertinent_set).collect::<Vec<_>>()
-            );
-            panic!("retrieval failed");
+    for ciphertext in ciphertexts.iter() {
+        if let Ok(_) = retriever.retrieve(ciphertext) {
+            return;
         }
     }
 
-    debug!("Retrieval done");
-    let retrieval_end = Instant::now();
-    info!("retrieval times: {:?}", retrieval_end - retrieval_start);
-
-    assert_eq!(pertinent_set, retrieval_set);
+    assert!(
+        retriever.retrieval_set().difference(&pertinent_set).count() == 0,
+        "retrieval failed"
+    );
 }
