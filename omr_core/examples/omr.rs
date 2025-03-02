@@ -17,10 +17,20 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
+    let num_threads = 16;
+
     rayon::ThreadPoolBuilder::new()
-        .num_threads(1)
+        .num_threads(num_threads)
         .build_global()
         .unwrap();
+
+    // let all_payloads_count: usize = 1 << 15;
+    let all_payloads_count: usize = 1 << 10;
+    let pertinent_count = if all_payloads_count <= 50 {
+        all_payloads_count
+    } else {
+        50
+    };
 
     let params = OmrParameters::new();
     let mut rng = rand::thread_rng();
@@ -34,14 +44,6 @@ fn main() {
     let sender2 = secret_key_pack2.generate_sender(&mut rng);
 
     let detector = secret_key_pack.generate_detector(&mut rng);
-
-    // let all_payloads_count: usize = 1 << 15;
-    let all_payloads_count: usize = 1;
-    let pertinent_count = if all_payloads_count <= 50 {
-        all_payloads_count
-    } else {
-        50
-    };
 
     let mut pertinent = vec![false; all_payloads_count];
     pertinent[0..pertinent_count]

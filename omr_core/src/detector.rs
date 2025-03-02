@@ -83,23 +83,19 @@ impl Detector {
         let first_level_blind_rotation_key = self.detection_key.first_level_blind_rotation_key();
 
         // First level blind rotation and sum
-        // use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
-        // let intermedia = clues
-        //     .par_iter()
-        //     .map(|c| {
-        //         let span = trace_span!("First level blind rotation");
-        //         let _enter = span.enter();
-        //         first_level_blind_rotation_key.blind_rotate(lut1.clone(), c)
-        //     })
-        //     .reduce(
-        //         || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
-        //         |acc, c| acc.add_element_wise(&c),
-        //     );
+        use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
         let intermedia = clues
-            .iter()
+            .par_iter()
             .map(|c| first_level_blind_rotation_key.blind_rotate(self.first_level_lut.clone(), c))
-            .reduce(|acc, ele| acc.add_element_wise(&ele))
-            .unwrap_or_else(|| <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension));
+            .reduce(
+                || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+                |acc, c| acc.add_element_wise(&c),
+            );
+        // let intermedia = clues
+        //     .iter()
+        //     .map(|c| first_level_blind_rotation_key.blind_rotate(self.first_level_lut.clone(), c))
+        //     .reduce(|acc, ele| acc.add_element_wise(&ele))
+        //     .unwrap_or_else(|| <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension));
 
         // Key switching
         let intermedia = self
