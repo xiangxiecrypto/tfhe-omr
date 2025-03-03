@@ -3,9 +3,9 @@ use std::{collections::HashSet, time::Instant};
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::Rlwe;
-use omr_core::{KeyGen, OmrParameters, SecondLevelField};
-use rand::seq::SliceRandom;
-use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+use omr_core::{Detector, KeyGen, OmrParameters, SecondLevelField, SecretKeyPack, Sender};
+use rand::{rngs::ThreadRng, seq::SliceRandom};
+use rayon::prelude::*;
 use tracing::{debug, info, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -18,19 +18,12 @@ fn main() {
         .init();
 
     let num_threads = 16;
+    println!("num_threads: {}", num_threads);
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .build_global()
         .unwrap();
-
-    // let all_payloads_count: usize = 1 << 15;
-    let all_payloads_count: usize = 1 << 10;
-    let pertinent_count = if all_payloads_count <= 50 {
-        all_payloads_count
-    } else {
-        50
-    };
 
     let params = OmrParameters::new();
     let mut rng = rand::thread_rng();
@@ -45,11 +38,40 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
+    for i in (0..=15).rev() {
+        println!("\nall_payloads_count: {}", 1 << i);
+        println!("all_payloads_count: 2^{}", i);
+        let all_payloads_count = 1 << i;
+        omr(
+            all_payloads_count,
+            &secret_key_pack,
+            &sender,
+            &sender2,
+            &detector,
+            &mut rng,
+        );
+    }
+}
+
+fn omr(
+    all_payloads_count: usize,
+    secret_key_pack: &SecretKeyPack,
+    sender: &Sender,
+    sender2: &Sender,
+    detector: &Detector,
+    rng: &mut ThreadRng,
+) {
+    let pertinent_count = if all_payloads_count <= 50 {
+        all_payloads_count
+    } else {
+        50
+    };
+
     let mut pertinent = vec![false; all_payloads_count];
     pertinent[0..pertinent_count]
         .iter_mut()
         .for_each(|v| *v = true);
-    pertinent.shuffle(&mut rng);
+    pertinent.shuffle(rng);
 
     let mut pertinent_set = HashSet::new();
     pertinent.iter().enumerate().for_each(|(i, &f)| {

@@ -83,7 +83,7 @@ impl Detector {
         let first_level_blind_rotation_key = self.detection_key.first_level_blind_rotation_key();
 
         // First level blind rotation and sum
-        use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
+        use rayon::prelude::*;
         let intermedia = clues
             .par_iter()
             .map(|c| first_level_blind_rotation_key.blind_rotate(self.first_level_lut.clone(), c))
