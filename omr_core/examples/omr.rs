@@ -20,6 +20,9 @@ fn main() {
     let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
+    let all_payloads_count = 1 << 9;
+    println!("all_payloads_count: {}", all_payloads_count);
+
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
         .build_global()
@@ -38,19 +41,14 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    for i in (0..=15).rev() {
-        println!("\nall_payloads_count: {}", 1 << i);
-        println!("all_payloads_count: 2^{}", i);
-        let all_payloads_count = 1 << i;
-        omr(
-            all_payloads_count,
-            &secret_key_pack,
-            &sender,
-            &sender2,
-            &detector,
-            &mut rng,
-        );
-    }
+    omr(
+        all_payloads_count,
+        &secret_key_pack,
+        &sender,
+        &sender2,
+        &detector,
+        &mut rng,
+    );
 }
 
 fn omr(

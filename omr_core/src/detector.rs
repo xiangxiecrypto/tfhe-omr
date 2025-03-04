@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 use algebra::{
     integer::{AsFrom, AsInto},
     ntt::{NttTable, NumberTheoryTransform},
@@ -10,7 +12,8 @@ use fhe_core::{
 };
 use lattice::NttRlwe;
 use num_traits::{ConstOne, Zero};
-use rand::prelude::Distribution;
+use rand::prelude::*;
+use rayon::prelude::*;
 
 use crate::{
     ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, RetrievalParams,
@@ -22,6 +25,23 @@ pub struct Detector {
     detection_key: DetectionKey,
     first_level_lut: FieldPolynomial<FirstLevelField>,
     second_level_lut: FieldPolynomial<SecondLevelField>,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct DetectTimeInfoPerMessage {
+    pub total_time: Duration,
+    pub total_first_level_blind_rotation_outer_time: Duration,
+    pub total_first_level_blind_rotation_inner_time: Duration,
+    pub second_level_blind_rotation_time: Duration,
+    pub trace_time: Duration,
+}
+
+impl DetectTimeInfoPerMessage {
+    /// Creates a new [`DetectTimeInfoPerMessage`].
+    #[inline]
+    pub fn new() -> Self {
+        Default::default()
+    }
 }
 
 impl Detector {
@@ -157,6 +177,139 @@ impl Detector {
 
         // Homomorphic Trace
         self.detection_key.trace_key().trace(&second_level_result)
+    }
+
+    /// Detects the message from the given clues.
+    pub fn detect_with_time_info(
+        &self,
+        clues: &CmLweCiphertext<ClueValue>,
+    ) -> (RlweCiphertext<SecondLevelField>, DetectTimeInfoPerMessage) {
+        let total_start = Instant::now();
+
+        let params = self.detection_key.params();
+        let msg_count = clues.msg_count();
+
+        // Extract clues
+        let mut clues: Vec<LweCiphertext<ClueValue>> =
+            clues.extract_all(self.detection_key.clue_modulus());
+
+        let clue_params_cipher_modulus_value = params.clue_params().cipher_modulus_value;
+        let first_level_ring_dimension = params.first_level_ring_dimension();
+
+        // Modulus switching to `2 * N_1`
+        if clue_params_cipher_modulus_value
+            != ModulusValue::PowerOf2(first_level_ring_dimension as ClueValue * 2)
+        {
+            clues.iter_mut().for_each(|clue| {
+                lwe_modulus_switch_assign(
+                    clue,
+                    clue_params_cipher_modulus_value,
+                    first_level_ring_dimension as ClueValue * 2,
+                );
+            });
+        }
+
+        let first_level_blind_rotation_key = self.detection_key.first_level_blind_rotation_key();
+        let first_level_blind_rotation_start = Instant::now();
+
+        // First level blind rotation and sum
+        let (intermedia, total_first_level_blind_rotation_inner_time) = clues
+            .par_iter()
+            .map(|c| {
+                let start = Instant::now();
+                let ret =
+                    first_level_blind_rotation_key.blind_rotate(self.first_level_lut.clone(), c);
+                let end = Instant::now();
+                (ret, end - start)
+            })
+            .reduce(
+                || {
+                    (
+                        <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
+                        Duration::default(),
+                    )
+                },
+                |(acc, t_time), (c, c_time)| (acc.add_element_wise(&c), t_time + c_time),
+            );
+        let total_first_level_blind_rotation_outer_time =
+            first_level_blind_rotation_start.elapsed();
+
+        // Key switching
+        let intermedia = self
+            .detection_key
+            .first_level_key_switching_key()
+            .key_switch(&intermedia.extract_lwe_locally(), FirstLevelField::MODULUS);
+
+        let intermediate_lwe_params = params.intermediate_lwe_params();
+        let intermediate_cipher_modulus_value = intermediate_lwe_params.cipher_modulus_value;
+        let intermediate_cipher_modulus = intermediate_lwe_params.cipher_modulus;
+        let intermediate_plain_modulus_value = intermediate_lwe_params.plain_modulus_value;
+
+        // Modulus switching
+        let mut intermedia = lwe_modulus_switch(
+            &intermedia,
+            params.first_level_blind_rotation_params().modulus,
+            intermediate_cipher_modulus_value,
+        );
+
+        let log_plain_modulus = intermediate_plain_modulus_value.trailing_zeros();
+
+        // Add `msg_count`
+        let scale = (msg_count as InterLweValue) * {
+            match intermediate_cipher_modulus_value {
+                ModulusValue::Native => 1 << (InterLweValue::BITS - log_plain_modulus),
+                ModulusValue::PowerOf2(q) => q >> log_plain_modulus,
+                ModulusValue::Prime(q) | ModulusValue::Others(q) => {
+                    let temp = q >> (log_plain_modulus - 1);
+                    (temp + 1) >> 1
+                }
+            }
+        };
+        intermediate_cipher_modulus.reduce_add_assign(
+            intermedia.b_mut(),
+            intermediate_cipher_modulus.reduce(scale),
+        );
+
+        // Modulus switching
+        if intermediate_cipher_modulus_value
+            != ModulusValue::PowerOf2(params.second_level_ring_dimension() as InterLweValue * 2)
+        {
+            lwe_modulus_switch_assign(
+                &mut intermedia,
+                intermediate_cipher_modulus_value,
+                params.second_level_ring_dimension() as InterLweValue * 2,
+            );
+        }
+
+        let second_level_blind_rotation_start = Instant::now();
+        // Second level blind rotation
+        let mut second_level_result = self
+            .detection_key
+            .second_level_blind_rotation_key()
+            .blind_rotate(self.second_level_lut.clone(), &intermedia);
+        let second_level_blind_rotation_time = second_level_blind_rotation_start.elapsed();
+
+        // Multiply by `n_inv`
+        let n_inv = self.detection_key.second_level_ring_dimension_inv();
+        second_level_result.a_mut().mul_shoup_scalar_assign(n_inv);
+        second_level_result.b_mut().mul_shoup_scalar_assign(n_inv);
+
+        let trace_start = Instant::now();
+        // Homomorphic Trace
+        let result = self.detection_key.trace_key().trace(&second_level_result);
+        let trace_time = trace_start.elapsed();
+
+        let total_time = total_start.elapsed();
+
+        let time_info = DetectTimeInfoPerMessage {
+            total_time,
+            total_first_level_blind_rotation_outer_time,
+            total_first_level_blind_rotation_inner_time,
+            second_level_blind_rotation_time,
+            trace_time,
+        };
+
+        (result, time_info)
     }
 
     pub fn generate_retrieval_ciphertext(
