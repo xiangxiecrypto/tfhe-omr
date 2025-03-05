@@ -71,7 +71,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    for all_payloads_count in (0..=6).rev().map(|i| 1 << i) {
+    for all_payloads_count in (0..=15).rev().map(|i| 1 << i) {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
