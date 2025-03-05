@@ -10,7 +10,8 @@ use serde::{Deserialize, Serialize};
 use fhe_core::CmLweCiphertext;
 use lattice::Rlwe;
 use omr_core::{
-    DetectTimeInfoPerMessage, Detector, KeyGen, OmrParameters, Retriever, SecondLevelField, Sender,
+    DetectTimeInfo, DetectTimeInfoPerMessage, Detector, KeyGen, OmrParameters, Retriever,
+    SecondLevelField, Sender,
 };
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -27,15 +28,12 @@ struct Record {
     #[serde(rename = "total detect inner time")]
     #[serde(with = "humantime_serde")]
     total_detect_inner_time: Duration,
-    #[serde(rename = "total first level blind rotation outer time")]
+    #[serde(rename = "total first level bootstrapping time")]
     #[serde(with = "humantime_serde")]
-    total_first_level_blind_rotation_outer_time: Duration,
-    #[serde(rename = "total first level blind rotation inner time")]
+    total_first_level_bootstrapping_time: Duration,
+    #[serde(rename = "total second level bootstrapping time")]
     #[serde(with = "humantime_serde")]
-    total_first_level_blind_rotation_inner_time: Duration,
-    #[serde(rename = "total second level blind rotation time")]
-    #[serde(with = "humantime_serde")]
-    total_second_level_blind_rotation_time: Duration,
+    total_second_level_bootstrapping_time: Duration,
     #[serde(rename = "total trace time")]
     #[serde(with = "humantime_serde")]
     total_trace_time: Duration,
@@ -58,8 +56,8 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    // let num_threads_vec = vec![8, 16];
-    let num_threads_vec = vec![1, 2, 4, 8, 16];
+    let num_threads_vec = vec![8, 16];
+    // let num_threads_vec = vec![1, 2, 4, 8, 16];
     // let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 96, 128, 160, 192];
     let pools = num_threads_vec
         .iter()
@@ -71,7 +69,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    for all_payloads_count in (0..=15).rev().map(|i| 1 << i) {
+    for all_payloads_count in (0..=8).rev().map(|i| 1 << i) {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
@@ -81,26 +79,20 @@ fn main() {
             let mut retriever =
                 secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
 
-            let (
-                total_detect_outer_time,
-                total_detect_inner_time,
-                total_first_level_blind_rotation_outer_time,
-                total_first_level_blind_rotation_inner_time,
-                total_second_level_blind_rotation_time,
-                total_trace_time,
-                compress_time,
-            ) = pool.install(|| omr(&detector, &clues_list, &pertinent_set, &mut retriever));
+            let (total_detect_outer_time, time_info, compress_time) =
+                pool.install(|| omr(&detector, &clues_list, &pertinent_set, &mut retriever));
 
             let record = Record {
                 num_threads: pool.current_num_threads(),
                 all_payloads_count,
                 pertinent_count,
                 total_detect_outer_time,
-                total_detect_inner_time,
-                total_first_level_blind_rotation_outer_time,
-                total_first_level_blind_rotation_inner_time,
-                total_second_level_blind_rotation_time,
-                total_trace_time,
+                total_detect_inner_time: time_info.total_detect_time,
+                total_first_level_bootstrapping_time: time_info
+                    .total_first_level_bootstrapping_time,
+                total_second_level_bootstrapping_time: time_info
+                    .total_second_level_bootstrapping_time,
+                total_trace_time: time_info.total_trace_time,
                 compress_time,
             };
             println!("{:#?}\n\n", record);
@@ -162,34 +154,26 @@ fn omr(
     clues_list: &[CmLweCiphertext<u16>],
     pertinent_set: &HashSet<usize>,
     retriever: &mut Retriever<SecondLevelField>,
-) -> (
-    Duration,
-    Duration,
-    Duration,
-    Duration,
-    Duration,
-    Duration,
-    Duration,
-) {
-    let total_detect_outer_start = Instant::now();
-    let (detect_list, detect_inner_time_list): (
+) -> (Duration, DetectTimeInfo, Duration) {
+    let time_0 = Instant::now();
+
+    let (pertivency_vector, detect_inner_time_list): (
         Vec<Rlwe<SecondLevelField>>,
         Vec<DetectTimeInfoPerMessage>,
     ) = clues_list
         .par_iter()
         .map(|clues| detector.detect_with_time_info(clues))
         .collect();
-    let total_detect_outer_time = total_detect_outer_start.elapsed();
+
+    let time_1 = Instant::now();
 
     let retrieval_params = retriever.params();
-
     let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
-
-    let compress_start = Instant::now();
     let ciphertexts: Vec<_> = (0..max_retrieve_cipher_count)
-        .map(|_| detector.generate_retrieval_ciphertext(retrieval_params, &detect_list))
+        .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
         .collect();
-    let compress_time = compress_start.elapsed();
+
+    let time_2 = Instant::now();
 
     for ciphertext in ciphertexts.iter() {
         if let Ok(_) = retriever.retrieve(ciphertext) {
@@ -202,46 +186,9 @@ fn omr(
         "retrieval failed"
     );
 
-    let (
-        total_detect_inner_time,
-        total_first_level_blind_rotation_outer_time,
-        total_first_level_blind_rotation_inner_time,
-        total_second_level_blind_rotation_time,
-        total_trace_time,
-    ) = detect_inner_time_list.iter().fold(
-        (
-            Duration::default(),
-            Duration::default(),
-            Duration::default(),
-            Duration::default(),
-            Duration::default(),
-        ),
-        |acc, b| {
-            let (
-                total_detect_inner_time,
-                total_first_level_blind_rotation_outer_time,
-                total_first_level_blind_rotation_inner_time,
-                total_second_level_blind_rotation_time,
-                total_trace_time,
-            ) = acc;
-            (
-                total_detect_inner_time + b.total_time,
-                total_first_level_blind_rotation_outer_time
-                    + b.total_first_level_blind_rotation_outer_time,
-                total_first_level_blind_rotation_inner_time
-                    + b.total_first_level_blind_rotation_inner_time,
-                total_second_level_blind_rotation_time + b.second_level_blind_rotation_time,
-                total_trace_time + b.trace_time,
-            )
-        },
-    );
-    (
-        total_detect_outer_time,
-        total_detect_inner_time,
-        total_first_level_blind_rotation_outer_time,
-        total_first_level_blind_rotation_inner_time,
-        total_second_level_blind_rotation_time,
-        total_trace_time,
-        compress_time,
-    )
+    let time_info = detect_inner_time_list
+        .into_iter()
+        .fold(DetectTimeInfo::default(), |acc, b| acc + b);
+
+    (time_1 - time_0, time_info, time_2 - time_1)
 }

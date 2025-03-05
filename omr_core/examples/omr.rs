@@ -108,7 +108,7 @@ fn omr(
 
     debug!("Detecting...");
     let start = Instant::now();
-    let detect_list: Vec<Rlwe<SecondLevelField>> = clues_list
+    let pertivency_vector: Vec<Rlwe<SecondLevelField>> = clues_list
         .par_iter()
         .progress_with(pb.clone())
         .map(|clues| detector.detect(clues))
@@ -129,7 +129,7 @@ fn omr(
 
     let compress_start = Instant::now();
     let ciphertexts: Vec<_> = (0..max_retrieve_cipher_count)
-        .map(|_| detector.generate_retrieval_ciphertext(retrieval_params, &detect_list))
+        .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
         .collect();
     let compress_end = Instant::now();
     info!("compress times: {:?}", compress_end - compress_start);

@@ -76,12 +76,12 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         ),
         |b| {
             b.iter(|| {
-                detector.generate_retrieval_ciphertext(retrieval_params, black_box(&detect_list))
+                detector.compress_pertivency_vector(retrieval_params, black_box(&detect_list))
             });
         },
     );
 
-    let ct = detector.generate_retrieval_ciphertext(retrieval_params, &detect_list);
+    let ct = detector.compress_pertivency_vector(retrieval_params, &detect_list);
 
     c.bench_function("retrieve single ciphertext", |b| {
         b.iter_batched_ref(

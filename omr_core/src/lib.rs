@@ -13,7 +13,9 @@ pub use parameters::*;
 
 pub use lut::LookUpTable;
 
-pub use detector::{first_level_lut, second_level_lut, DetectTimeInfoPerMessage, Detector};
+pub use detector::{
+    first_level_lut, second_level_lut, DetectTimeInfo, DetectTimeInfoPerMessage, Detector,
+};
 pub use key_gen::{ClueKey, DetectionKey, KeyGen, SecretKeyPack};
 pub use retrieval::{RetrievalParams, Retriever};
 pub use sender::Sender;

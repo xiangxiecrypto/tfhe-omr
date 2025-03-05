@@ -1,6 +1,6 @@
 use algebra::{
-    decompose::NonPowOf2ApproxSignedBasis, modulus::PowOf2Modulus, random::DiscreteGaussian, Field,
-    NttField, U32FieldEval, U64FieldEval,
+    decompose::NonPowOf2ApproxSignedBasis, modulus::PowOf2Modulus, random::DiscreteGaussian,
+    reduce::ModulusValue, Field, NttField, U32FieldEval, U64FieldEval,
 };
 use fhe_core::{
     GadgetRlweParameters, KeySwitchingParameters, LweParameters, LweSecretKeyType,
@@ -96,22 +96,34 @@ impl OmrParameters {
         }
     }
 
+    /// Returns the clue count of this [`OmrParameters`].
+    #[inline]
+    pub fn clue_count(&self) -> usize {
+        self.clue_count
+    }
+
     /// Returns a reference to the clue params of this [`OmrParameters`].
     #[inline]
     pub fn clue_params(&self) -> &LweParameters<ClueValue, ClueModulus> {
         &self.clue_params
     }
 
+    /// Returns the clue cipher modulus of this [`OmrParameters`].
+    #[inline]
+    pub fn clue_cipher_modulus(&self) -> ClueModulus {
+        self.clue_params.cipher_modulus
+    }
+
+    /// Returns the clue cipher modulus value of this [`OmrParameters`].
+    #[inline]
+    pub fn clue_cipher_modulus_value(&self) -> ModulusValue<ClueValue> {
+        self.clue_params.cipher_modulus_value
+    }
+
     /// Returns the clue plain modulus value of this [`OmrParameters`].
     #[inline]
     pub fn clue_plain_modulus_value(&self) -> ClueValue {
         self.clue_params.plain_modulus_value
-    }
-
-    /// Returns the clue count of this [`OmrParameters`].
-    #[inline]
-    pub fn clue_count(&self) -> usize {
-        self.clue_count
     }
 
     /// Returns the first level blind rotation params of this [`OmrParameters`].
