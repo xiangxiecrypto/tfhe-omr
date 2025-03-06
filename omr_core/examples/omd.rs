@@ -1,6 +1,5 @@
 use algebra::{ntt::NumberTheoryTransform, Field};
 use omr_core::{KeyGen, OmrParameters, SecondLevelField};
-use rand::SeedableRng;
 use tracing::{debug, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
@@ -15,7 +14,7 @@ fn main() {
         .init();
 
     let params = OmrParameters::new();
-    let mut rng = rand::rngs::StdRng::from_entropy();
+    let mut rng = rand::thread_rng();
 
     let fp = <SecondLevelField as Field>::MODULUS_VALUE;
     let ft = params.output_plain_modulus_value();

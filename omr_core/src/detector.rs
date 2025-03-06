@@ -3,6 +3,9 @@ use std::{
     time::{Duration, Instant},
 };
 
+use num_traits::{ConstOne, Zero};
+use rand::prelude::*;
+
 use algebra::{
     integer::{AsFrom, AsInto},
     modulus::ShoupFactor,
@@ -13,14 +16,12 @@ use algebra::{
 };
 use fhe_core::{
     lwe_modulus_switch, lwe_modulus_switch_assign, BlindRotationKey, CmLweCiphertext,
-    LweCiphertext, NonPowOf2LweKeySwitchingKey, RlweCiphertext, TraceKey,
+    LweCiphertext, NonPowOf2LweKeySwitchingKey, NttRlweCiphertext, RlweCiphertext, TraceKey,
 };
 use lattice::NttRlwe;
-use num_traits::{ConstOne, Zero};
-use rand::prelude::*;
 
 use crate::{
-    ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, OmrParameters,
+    ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, OmrParameters, Payload,
     RetrievalParams, SecondLevelField,
 };
 
@@ -264,6 +265,61 @@ impl Detector {
             });
 
         ciphertext
+    }
+
+    pub fn generate_random_combinations<R>(
+        &self,
+        pertivency_vector: &[RlweCiphertext<SecondLevelField>],
+        payloads: &[Payload],
+        rng: &mut R,
+    ) -> Vec<NttRlweCiphertext<SecondLevelField>>
+    where
+        R: Rng + SeedableRng + CryptoRng,
+    {
+        let second_level_ring_dimension = self.detection_key.params().second_level_ring_dimension();
+        let ntt_table = self
+            .detection_key
+            .second_level_blind_rotation_key()
+            .ntt_table();
+
+        let mut combinations =
+            vec![NttRlweCiphertext::<SecondLevelField>::zero(second_level_ring_dimension); 60];
+
+        let mut payload_ntt_poly =
+            FieldNttPolynomial::<SecondLevelField>::zero(second_level_ring_dimension);
+
+        let mut weights = [0u8; 60];
+
+        let mut ntt_pv = NttRlweCiphertext::<SecondLevelField>::zero(second_level_ring_dimension);
+
+        pertivency_vector
+            .iter()
+            .zip(payloads.iter())
+            .for_each(|(pv, payload)| {
+                rng.fill_bytes(&mut weights);
+
+                pv.transform_inplace(ntt_table, &mut ntt_pv);
+
+                combinations
+                    .iter_mut()
+                    .zip(&weights)
+                    .for_each(|(cmb, weight)| {
+                        payload_ntt_poly
+                            .iter_mut()
+                            .zip(payload.0.iter())
+                            .for_each(|(a, &b)| {
+                                *a = (b * weight) as <SecondLevelField as Field>::ValueT;
+                            });
+
+                        payload_ntt_poly[612..].fill(0);
+
+                        ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
+
+                        cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&ntt_pv, &payload_ntt_poly);
+                    });
+            });
+
+        combinations
     }
 }
 

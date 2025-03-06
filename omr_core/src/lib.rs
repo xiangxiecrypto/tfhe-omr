@@ -1,6 +1,8 @@
 //! # OMR Core
 
 mod parameters;
+mod payload;
+mod srlc;
 
 mod lut;
 
@@ -10,12 +12,12 @@ mod retrieval;
 mod sender;
 
 pub use parameters::*;
+pub use payload::Payload;
+pub use srlc::SrlcParams;
 
 pub use lut::LookUpTable;
 
-pub use detector::{
-    first_level_lut, second_level_lut, DetectTimeInfo, DetectTimeInfoPerMessage, Detector,
-};
+pub use detector::{DetectTimeInfo, DetectTimeInfoPerMessage, Detector};
 pub use key_gen::{ClueKey, DetectionKey, KeyGen, SecretKeyPack};
 pub use retrieval::{RetrievalParams, Retriever};
 pub use sender::Sender;
