@@ -5,9 +5,11 @@ use algebra::{
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::{FieldNttPolynomial, FieldPolynomial},
 };
+use bigdecimal::{BigDecimal, RoundingMode};
 use fhe_core::{CmLweCiphertext, NttRlweCiphertext};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::Rlwe;
+use num_traits::{FromPrimitive, ToPrimitive};
 use omr_core::{Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender};
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -29,7 +31,7 @@ fn main() {
     let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 10;
+    let all_payloads_count = 1 << 15;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -194,8 +196,35 @@ fn omr(
         }
     }
 
+    let mut test_combined_payload = vec![Payload::new(); combination_count];
+
+    for (&index, row) in indices.iter().zip(matrix.iter()) {
+        let payload = payloads[index];
+        test_combined_payload
+            .iter_mut()
+            .zip(row.iter())
+            .for_each(|(p, &w)| {
+                *p = *p + (payload * w);
+            });
+    }
+
     let mut combined_payload =
         decode_combined_payload(secret_key_pack, &combinations, combination_count);
+
+    for (i, (a, b)) in test_combined_payload
+        .iter()
+        .zip(combined_payload.iter())
+        .enumerate()
+    {
+        a.0.iter()
+            .zip(b.0.iter())
+            .enumerate()
+            .for_each(|(j, (x, y))| {
+                if *x != *y {
+                    println!("i: {}, j: {}, left: {}, right: {}", i, j, x, y);
+                }
+            });
+    }
 
     let solved_payloads =
         solve_matrix_mod_2_8_ver_2(&mut matrix, &mut indices, &mut combined_payload);
@@ -227,10 +256,12 @@ fn decode_combined_payload(
     let ring_dimesion = ntt_table.dimension();
     let sk = skp.second_level_ntt_rlwe_secret_key();
 
-    let q = skp
-        .parameters()
-        .second_level_blind_rotation_params()
-        .modulus as f64;
+    let q = BigDecimal::from(
+        skp.parameters()
+            .second_level_blind_rotation_params()
+            .modulus,
+    );
+    let plain = BigDecimal::from_u16(256).unwrap();
 
     let mut a: FieldPolynomial<SecondLevelField> = FieldPolynomial::zero(ring_dimesion);
     let mut b: FieldPolynomial<SecondLevelField> = FieldPolynomial::zero(ring_dimesion);
@@ -247,11 +278,13 @@ fn decode_combined_payload(
         ntt_table.inverse_transform_slice(a.as_mut_slice());
         b -= &a;
         payload.0.iter_mut().zip(b.as_slice()).for_each(|(p, &b)| {
-            let mut t = (b as f64 * 256.0 / q).round();
+            let mut t = (BigDecimal::from_u64(b).unwrap() * &plain / &q)
+                .with_scale_round(0, RoundingMode::HalfUp);
             if t >= q {
-                t -= q;
+                t -= &q;
             }
-            *p = t as u8;
+            let t = t.to_u64().unwrap() as u8;
+            *p = t;
         });
     }
     combined_payload

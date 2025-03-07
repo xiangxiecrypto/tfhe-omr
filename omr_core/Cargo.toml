@@ -17,6 +17,7 @@ itertools = { workspace = true }
 rayon = { workspace = true }
 serde = { workspace = true }
 humantime-serde = "1.1.1"
+bigdecimal = "0.4.7"
 
 [dev-dependencies]
 tracing = { workspace = true }
