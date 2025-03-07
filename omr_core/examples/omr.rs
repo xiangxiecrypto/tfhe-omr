@@ -175,6 +175,7 @@ fn omr(
     }
 
     let retrieval_set = retriever.retrieval_set();
+    assert!(retrieval_set.difference(&pertinent_set).count() == 0);
     let mut indices = retrieval_set.iter().copied().collect::<Vec<_>>();
     indices.sort_unstable();
 
