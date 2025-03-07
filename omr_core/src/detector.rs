@@ -23,7 +23,7 @@ use lattice::NttRlwe;
 
 use crate::{
     ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, OmrParameters, Payload,
-    RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
+    RetrievalParams, SecondLevelField,
 };
 
 /// The detector for OMR.
@@ -305,14 +305,15 @@ impl Detector {
             pv.transform_inplace(ntt_table, &mut ntt_pv);
 
             for (cmb, &weight) in izip!(combinations.iter_mut(), weights_chunk) {
+                payload_ntt_poly.set_zero();
+
+                let weighted_payload = *payload * weight;
                 payload_ntt_poly
                     .iter_mut()
-                    .zip(payload.0.iter())
+                    .zip(weighted_payload.0.iter())
                     .for_each(|(a, &b)| {
-                        *a = b.wrapping_mul(weight) as <SecondLevelField as Field>::ValueT;
+                        *a = b as <SecondLevelField as Field>::ValueT;
                     });
-
-                payload_ntt_poly[PAYLOAD_LENGTH..].fill(0);
 
                 ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
 

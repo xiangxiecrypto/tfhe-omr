@@ -5,7 +5,7 @@ use algebra::{
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::{FieldNttPolynomial, FieldPolynomial},
 };
-use fhe_core::CmLweCiphertext;
+use fhe_core::{CmLweCiphertext, NttRlweCiphertext};
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::Rlwe;
 use omr_core::{Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender};
@@ -193,37 +193,8 @@ fn omr(
         }
     }
 
-    let mut combined_payload = vec![Payload::new(); combination_count];
-    let ntt_table = secret_key_pack.second_level_ntt_table();
-    let second_level_ring_dimesion = ntt_table.dimension();
-    let sk = secret_key_pack.second_level_ntt_rlwe_secret_key();
-    let mut a: FieldPolynomial<SecondLevelField> =
-        FieldPolynomial::zero(second_level_ring_dimesion);
-    let mut temp: FieldNttPolynomial<SecondLevelField> =
-        FieldNttPolynomial::zero(second_level_ring_dimesion);
-    let mut b: FieldPolynomial<SecondLevelField> =
-        FieldPolynomial::zero(second_level_ring_dimesion);
-    let q = secret_key_pack
-        .parameters()
-        .second_level_blind_rotation_params()
-        .modulus as f64;
-    let r = q / 256.0;
-    for (cipher, payload) in combinations.iter().zip(combined_payload.iter_mut()) {
-        b.copy_from(cipher.b());
-        ntt_table.inverse_transform_slice(b.as_mut_slice());
-
-        cipher.a().mul_inplace(sk, &mut temp);
-        a.copy_from(&temp);
-        ntt_table.inverse_transform_slice(a.as_mut_slice());
-        b -= &a;
-        payload.0.iter_mut().zip(b.as_slice()).for_each(|(p, &b)| {
-            let mut t = (b as f64 / r).round();
-            if t >= q {
-                t -= q;
-            }
-            *p = t as u8;
-        });
-    }
+    let mut combined_payload =
+        decode_combined_payload(secret_key_pack, &combinations, combination_count);
 
     let solved_payloads =
         solve_matrix_mod_2_8_ver_2(&mut matrix, &mut indices, &mut combined_payload);
@@ -244,6 +215,45 @@ fn omr(
     }
 
     info!("All done");
+}
+
+fn decode_combined_payload(
+    skp: &SecretKeyPack,
+    combinations: &[NttRlweCiphertext<SecondLevelField>],
+    combination_count: usize,
+) -> Vec<Payload> {
+    let ntt_table = skp.second_level_ntt_table();
+    let ring_dimesion = ntt_table.dimension();
+    let sk = skp.second_level_ntt_rlwe_secret_key();
+
+    let q = skp
+        .parameters()
+        .second_level_blind_rotation_params()
+        .modulus as f64;
+
+    let mut a: FieldPolynomial<SecondLevelField> = FieldPolynomial::zero(ring_dimesion);
+    let mut b: FieldPolynomial<SecondLevelField> = FieldPolynomial::zero(ring_dimesion);
+    let mut temp: FieldNttPolynomial<SecondLevelField> = FieldNttPolynomial::zero(ring_dimesion);
+
+    let mut combined_payload = vec![Payload::new(); combination_count];
+
+    for (cipher, payload) in combinations.iter().zip(combined_payload.iter_mut()) {
+        b.copy_from(cipher.b());
+        ntt_table.inverse_transform_slice(b.as_mut_slice());
+
+        cipher.a().mul_inplace(sk, &mut temp);
+        a.copy_from(&temp);
+        ntt_table.inverse_transform_slice(a.as_mut_slice());
+        b -= &a;
+        payload.0.iter_mut().zip(b.as_slice()).for_each(|(p, &b)| {
+            let mut t = (b as f64 * 256.0 / q).round();
+            if t >= q {
+                t -= q;
+            }
+            *p = t as u8;
+        });
+    }
+    combined_payload
 }
 
 fn solve_matrix_mod_2_8(
