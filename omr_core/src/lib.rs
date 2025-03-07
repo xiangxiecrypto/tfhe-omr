@@ -12,7 +12,7 @@ mod retrieval;
 mod sender;
 
 pub use parameters::*;
-pub use payload::Payload;
+pub use payload::{Payload, PAYLOAD_LENGTH};
 pub use srlc::SrlcParams;
 
 pub use lut::LookUpTable;

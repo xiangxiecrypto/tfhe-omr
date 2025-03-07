@@ -3,6 +3,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use itertools::izip;
 use num_traits::{ConstOne, Zero};
 use rand::prelude::*;
 
@@ -22,7 +23,7 @@ use lattice::NttRlwe;
 
 use crate::{
     ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, OmrParameters, Payload,
-    RetrievalParams, SecondLevelField,
+    RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
 };
 
 /// The detector for OMR.
@@ -271,53 +272,53 @@ impl Detector {
         &self,
         pertivency_vector: &[RlweCiphertext<SecondLevelField>],
         payloads: &[Payload],
+        combination_count: usize,
         rng: &mut R,
     ) -> Vec<NttRlweCiphertext<SecondLevelField>>
     where
         R: Rng + SeedableRng + CryptoRng,
     {
-        let second_level_ring_dimension = self.detection_key.params().second_level_ring_dimension();
+        let payloads_count = payloads.len();
+
+        let ring_dimension = self.detection_key.params().second_level_ring_dimension();
         let ntt_table = self
             .detection_key
             .second_level_blind_rotation_key()
             .ntt_table();
 
         let mut combinations =
-            vec![NttRlweCiphertext::<SecondLevelField>::zero(second_level_ring_dimension); 60];
+            vec![NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension); combination_count];
 
-        let mut payload_ntt_poly =
-            FieldNttPolynomial::<SecondLevelField>::zero(second_level_ring_dimension);
+        let mut payload_ntt_poly = FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
 
-        let mut weights = [0u8; 60];
+        let mut all_weights = vec![0u8; combination_count * payloads_count];
 
-        let mut ntt_pv = NttRlweCiphertext::<SecondLevelField>::zero(second_level_ring_dimension);
+        let mut ntt_pv = NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension);
 
-        pertivency_vector
-            .iter()
-            .zip(payloads.iter())
-            .for_each(|(pv, payload)| {
-                rng.fill_bytes(&mut weights);
+        rng.fill_bytes(&mut all_weights);
 
-                pv.transform_inplace(ntt_table, &mut ntt_pv);
+        for (pv, payload, weights_chunk) in izip!(
+            pertivency_vector.iter(),
+            payloads.iter(),
+            all_weights.chunks_exact(combination_count)
+        ) {
+            pv.transform_inplace(ntt_table, &mut ntt_pv);
 
-                combinations
+            for (cmb, &weight) in izip!(combinations.iter_mut(), weights_chunk) {
+                payload_ntt_poly
                     .iter_mut()
-                    .zip(&weights)
-                    .for_each(|(cmb, weight)| {
-                        payload_ntt_poly
-                            .iter_mut()
-                            .zip(payload.0.iter())
-                            .for_each(|(a, &b)| {
-                                *a = (b * weight) as <SecondLevelField as Field>::ValueT;
-                            });
-
-                        payload_ntt_poly[612..].fill(0);
-
-                        ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
-
-                        cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&ntt_pv, &payload_ntt_poly);
+                    .zip(payload.0.iter())
+                    .for_each(|(a, &b)| {
+                        *a = b.wrapping_mul(weight) as <SecondLevelField as Field>::ValueT;
                     });
-            });
+
+                payload_ntt_poly[PAYLOAD_LENGTH..].fill(0);
+
+                ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
+
+                cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&ntt_pv, &payload_ntt_poly);
+            }
+        }
 
         combinations
     }
