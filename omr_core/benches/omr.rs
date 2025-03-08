@@ -86,7 +86,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     c.bench_function("retrieve single ciphertext", |b| {
         b.iter_batched_ref(
             || retriever.clone(),
-            |retriever| retriever.retrieve(black_box(&ct)),
+            |retriever| retriever.retrieve_indices(black_box(&ct)),
             BatchSize::SmallInput,
         );
     });

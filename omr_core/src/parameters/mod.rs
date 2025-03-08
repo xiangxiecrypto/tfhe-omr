@@ -7,6 +7,10 @@ use fhe_core::{
     RingSecretKeyType,
 };
 
+mod retrieval_params;
+
+pub use retrieval_params::RetrievalParams;
+
 pub type ClueValue = u16;
 pub type ClueModulus = PowOf2Modulus<ClueValue>;
 pub type FirstLevelField = U32FieldEval<134215681>;

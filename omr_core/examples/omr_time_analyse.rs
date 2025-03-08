@@ -176,7 +176,7 @@ fn omr(
     let time_2 = Instant::now();
 
     for ciphertext in ciphertexts.iter() {
-        if let Ok(_) = retriever.retrieve(ciphertext) {
+        if let Ok(_) = retriever.retrieve_indices(ciphertext) {
             break;
         }
     }
