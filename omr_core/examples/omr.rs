@@ -152,19 +152,23 @@ fn omr(
     );
 
     let seed = rng.gen();
-    let mut seed_rng = StdRng::from_seed(seed);
-    let combination_count = retrieval_params.combination_count();
 
+    let combine_start = Instant::now();
     let combinations = detector.generate_random_combinations(
         &pertivency_vector,
         &payloads,
-        combination_count,
-        &mut seed_rng,
+        retrieval_params.combination_count(),
+        &mut StdRng::from_seed(seed),
     );
+    let combine_end = Instant::now();
+    info!("combine time: {:?}", combine_end - combine_start);
 
+    let retrieve_start = Instant::now();
     let (indices, solved_payloads) = retriever
         .retrieve(&compress_indices, &combinations, seed)
         .unwrap();
+    let retrieve_end = Instant::now();
+    info!("retrieve time: {:?}", retrieve_end - retrieve_start);
 
     for (&i, p) in indices.iter().zip(solved_payloads.iter()) {
         if payloads[i] != *p {

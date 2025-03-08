@@ -60,19 +60,21 @@ impl<F: NttField> Retriever<F> {
 
         let shift_bits = index_modulus.trailing_zeros();
 
-        let fp: f64 = <F as Field>::MODULUS_VALUE.as_into();
-        let ft: f64 = index_modulus.as_into();
-
-        let decode = |c: F::ValueT| {
-            let t: F::ValueT = (AsInto::<f64>::as_into(c) * ft / fp).round().as_into();
-            t % index_modulus
-        };
+        let q = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
+        let p = BigDecimal::from_u64(index_modulus.as_into()).unwrap();
 
         let decrypted_ntt = compress_indices.b() - compress_indices.a().clone() * &*self.key;
         let decrypted = self.ntt_table.inverse_transform_inplace(decrypted_ntt);
         let decoded = decrypted
             .into_iter()
-            .map(decode)
+            .map(|c: F::ValueT| {
+                let mut t = (BigDecimal::from_u64(c.as_into()).unwrap() * &p / &q)
+                    .with_scale_round(0, RoundingMode::HalfUp);
+                if t >= q {
+                    t -= &q;
+                }
+                (t % &p).to_u64().unwrap().as_into()
+            })
             .collect::<Vec<F::ValueT>>();
 
         decoded.chunks_exact(slots_per_retrieval).for_each(|chunk| {
