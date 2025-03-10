@@ -1,3 +1,4 @@
+use algebra::utils::Size;
 use fhe_core::{CmLweCiphertext, LweParameters, LwePublicKeyRlweMode};
 use rand::{CryptoRng, Rng};
 
@@ -28,5 +29,12 @@ impl ClueKey {
         let messages = vec![0; count];
         self.key
             .encrypt_multi_messages(&messages, &self.params, rng)
+    }
+}
+
+impl Size for ClueKey {
+    #[inline]
+    fn size(&self) -> usize {
+        self.key.size()
     }
 }

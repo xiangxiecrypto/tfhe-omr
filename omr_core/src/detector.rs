@@ -13,6 +13,7 @@ use algebra::{
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::{FieldNttPolynomial, FieldPolynomial},
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
+    utils::Size,
     Field,
 };
 use fhe_core::{
@@ -102,6 +103,10 @@ impl Detector {
                 output_plain_modulus_value,
             ),
         }
+    }
+
+    pub fn detect_key_size(&self) -> usize {
+        self.detection_key.size()
     }
 
     /// Returns a reference to the detection key of this [`Detector`].

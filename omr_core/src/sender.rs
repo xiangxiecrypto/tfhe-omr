@@ -1,3 +1,4 @@
+use algebra::utils::Size;
 use fhe_core::CmLweCiphertext;
 use rand::{CryptoRng, Rng};
 
@@ -26,5 +27,11 @@ impl Sender {
         R: Rng + CryptoRng,
     {
         self.clue_key.gen_clues(self.clue_count, rng)
+    }
+
+    /// Returns the size of the clue key.
+    #[inline]
+    pub fn clue_key_size(&self) -> usize {
+        self.clue_key.size()
     }
 }

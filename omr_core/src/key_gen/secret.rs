@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use algebra::{modulus::ShoupFactor, ntt::NttTable, Field, NttField};
+use algebra::{modulus::ShoupFactor, ntt::NttTable, utils::Size, Field, NttField};
 use fhe_core::{
     BlindRotationKey, LweCiphertext, LwePublicKeyRlweMode, LweSecretKey,
     NonPowOf2LweKeySwitchingKey, NttRlweSecretKey, RlweSecretKey, TraceKey,
@@ -266,5 +266,17 @@ impl SecretKeyPack {
     pub fn decrypt_clue(&self, clue: &LweCiphertext<ClueValue>) -> ClueValue {
         self.clue_secret_key
             .decrypt::<ClueValue, _>(clue, self.parameters.clue_params())
+    }
+}
+
+impl Size for SecretKeyPack {
+    #[inline]
+    fn size(&self) -> usize {
+        self.clue_secret_key.size()
+            + self.first_level_rlwe_secret_key.size()
+            // + self.first_level_ntt_rlwe_secret_key.size()
+            + self.intermediate_lwe_secret_key.size()
+            + self.second_level_rlwe_secret_key.size()
+        // + self.second_level_ntt_rlwe_secret_key.size()
     }
 }

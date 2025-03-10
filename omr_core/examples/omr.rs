@@ -1,5 +1,6 @@
 use std::{collections::HashSet, time::Instant};
 
+use algebra::utils::Size;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::Rlwe;
@@ -39,11 +40,17 @@ fn main() {
     let secret_key_pack = KeyGen::generate_secret_key(params.clone(), &mut rng);
     let secret_key_pack2 = KeyGen::generate_secret_key(params.clone(), &mut rng);
 
+    println!("secret key size: {} bytes", secret_key_pack.size());
+
     debug!("Generating sender and detector...");
     let sender = secret_key_pack.generate_sender(&mut rng);
     let sender2 = secret_key_pack2.generate_sender(&mut rng);
 
+    println!("clue key size: {} bytes", sender.clue_key_size());
+
     let detector = secret_key_pack.generate_detector(&mut rng);
+
+    println!("detect key size: {} bytes", detector.detect_key_size());
 
     omr(
         all_payloads_count,

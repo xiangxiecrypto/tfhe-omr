@@ -1,4 +1,4 @@
-use algebra::{modulus::ShoupFactor, Field};
+use algebra::{modulus::ShoupFactor, utils::Size, Field};
 use fhe_core::{BlindRotationKey, NonPowOf2LweKeySwitchingKey, TraceKey};
 
 use crate::{ClueModulus, FirstLevelField, OmrParameters, SecondLevelField};
@@ -73,5 +73,15 @@ impl DetectionKey {
         &self,
     ) -> ShoupFactor<<SecondLevelField as Field>::ValueT> {
         self.second_level_ring_dimension_inv
+    }
+}
+
+impl Size for DetectionKey {
+    #[inline]
+    fn size(&self) -> usize {
+        self.first_level_blind_rotation_key.size()
+            + self.first_level_key_switching_key.size()
+            + self.second_level_blind_rotation_key.size()
+            + self.trace_key.size()
     }
 }
