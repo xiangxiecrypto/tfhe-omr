@@ -8,11 +8,17 @@ pub fn transpose_matrix(matrix: &[Vec<u8>]) -> Vec<Vec<u8>> {
     let num_cols = matrix[0].len();
 
     let mut transposed_matrix = vec![vec![0u8; num_rows]; num_cols];
-    for i in 0..num_rows {
-        for j in 0..num_cols {
-            transposed_matrix[j][i] = matrix[i][j];
+    for (i, src_row) in matrix.iter().enumerate() {
+        for (j, des_row) in transposed_matrix.iter_mut().enumerate() {
+            des_row[i] = src_row[j];
         }
     }
+
+    // for i in 0..num_rows {
+    //     for j in 0..num_cols {
+    //         transposed_matrix[j][i] = matrix[i][j];
+    //     }
+    // }
 
     transposed_matrix
 }

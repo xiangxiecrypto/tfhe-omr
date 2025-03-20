@@ -108,7 +108,7 @@ impl<F: NttField> Retriever<F> {
         let combination_count = combinations.len();
 
         for ciphertext in compress_indices.iter() {
-            if let Ok(_) = self.retrieve_indices(ciphertext) {
+            if self.retrieve_indices(ciphertext).is_ok() {
                 break;
             }
         }
@@ -146,7 +146,7 @@ impl<F: NttField> Retriever<F> {
         let p = BigDecimal::from_u16(256).unwrap();
 
         let mut payloads = vec![Payload::new(); combination_count];
-        let mut temp = <FieldNttPolynomial<F>>::zero((&self.ntt_table).dimension());
+        let mut temp = <FieldNttPolynomial<F>>::zero(self.ntt_table.dimension());
 
         payloads.iter_mut().zip(combinations.iter()).for_each(
             |(payload, cipher): (&mut Payload, &NttRlweCiphertext<F>)| {

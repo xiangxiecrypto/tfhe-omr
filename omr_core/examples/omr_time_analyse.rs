@@ -9,10 +9,7 @@ use serde::{Deserialize, Serialize};
 
 use fhe_core::CmLweCiphertext;
 use lattice::Rlwe;
-use omr_core::{
-    DetectTimeInfo, DetectTimeInfoPerMessage, Detector, KeyGen, OmrParameters, Retriever,
-    SecondLevelField, Sender,
-};
+use omr_core::{Detector, KeyGen, OmrParameters, Payload, Retriever, SecondLevelField, Sender};
 
 #[derive(Debug, Serialize, Deserialize)]
 struct Record {
@@ -22,24 +19,25 @@ struct Record {
     all_payloads_count: usize,
     #[serde(rename = "pertinent count")]
     pertinent_count: usize,
-    #[serde(rename = "total detect outer time")]
+    #[serde(rename = "detect time")]
     #[serde(with = "humantime_serde")]
-    total_detect_outer_time: Duration,
-    #[serde(rename = "total detect inner time")]
-    #[serde(with = "humantime_serde")]
-    total_detect_inner_time: Duration,
-    #[serde(rename = "total first level bootstrapping time")]
-    #[serde(with = "humantime_serde")]
-    total_first_level_bootstrapping_time: Duration,
-    #[serde(rename = "total second level bootstrapping time")]
-    #[serde(with = "humantime_serde")]
-    total_second_level_bootstrapping_time: Duration,
-    #[serde(rename = "total trace time")]
-    #[serde(with = "humantime_serde")]
-    total_trace_time: Duration,
+    detect_time: Duration,
     #[serde(rename = "compress time")]
     #[serde(with = "humantime_serde")]
     compress_time: Duration,
+    #[serde(rename = "combine time")]
+    #[serde(with = "humantime_serde")]
+    combine_time: Duration,
+    #[serde(rename = "retrieve time")]
+    #[serde(with = "humantime_serde")]
+    retrieve_time: Duration,
+}
+
+pub struct Time {
+    detect_time: Duration,
+    compress_time: Duration,
+    combine_time: Duration,
+    retrieve_time: Duration,
 }
 
 fn main() {
@@ -74,26 +72,33 @@ fn main() {
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
         let clues_list = generate_clues(&sender, &sender2, &pertinent_tag);
+        let payloads_list = geenrate_payloads(all_payloads_count);
+
+        let seed = rng.gen();
 
         for pool in pools.iter().rev() {
             let mut retriever =
                 secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
 
-            let (total_detect_outer_time, time_info, compress_time) =
-                pool.install(|| omr(&detector, &clues_list, &pertinent_set, &mut retriever));
+            let time = pool.install(|| {
+                omr(
+                    &detector,
+                    &clues_list,
+                    &payloads_list,
+                    &pertinent_set,
+                    &mut retriever,
+                    seed,
+                )
+            });
 
             let record = Record {
                 num_threads: pool.current_num_threads(),
                 all_payloads_count,
                 pertinent_count,
-                total_detect_outer_time,
-                total_detect_inner_time: time_info.total_detect_time,
-                total_first_level_bootstrapping_time: time_info
-                    .total_first_level_bootstrapping_time,
-                total_second_level_bootstrapping_time: time_info
-                    .total_second_level_bootstrapping_time,
-                total_trace_time: time_info.total_trace_time,
-                compress_time,
+                detect_time: time.detect_time,
+                compress_time: time.compress_time,
+                combine_time: time.combine_time,
+                retrieve_time: time.retrieve_time,
             };
             println!("{:#?}\n\n", record);
             wtr.serialize(record).unwrap();
@@ -149,46 +154,76 @@ fn generate_clues(
         .collect()
 }
 
+fn geenrate_payloads(all_payloads_count: usize) -> Vec<Payload> {
+    (0..all_payloads_count)
+        .into_par_iter()
+        .map_init(|| rand::thread_rng(), |rng, _| Payload::random(rng))
+        .collect()
+}
+
 fn omr(
     detector: &Detector,
     clues_list: &[CmLweCiphertext<u16>],
+    payloads_list: &[Payload],
     pertinent_set: &HashSet<usize>,
     retriever: &mut Retriever<SecondLevelField>,
-) -> (Duration, DetectTimeInfo, Duration) {
+    seed: [u8; 32],
+) -> Time {
+    let retrieval_params = retriever.params();
+    let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
+
     let time_0 = Instant::now();
 
-    let (pertivency_vector, detect_inner_time_list): (
-        Vec<Rlwe<SecondLevelField>>,
-        Vec<DetectTimeInfoPerMessage>,
-    ) = clues_list
+    let pertivency_vector: Vec<Rlwe<SecondLevelField>> = clues_list
         .par_iter()
-        .map(|clues| detector.detect_with_time_info(clues))
+        .map(|clues| detector.detect(clues))
         .collect();
 
     let time_1 = Instant::now();
 
-    let retrieval_params = retriever.params();
-    let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
-    let ciphertexts: Vec<_> = (0..max_retrieve_cipher_count)
+    let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
         .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
         .collect();
 
     let time_2 = Instant::now();
 
-    for ciphertext in ciphertexts.iter() {
-        if let Ok(_) = retriever.retrieve_indices(ciphertext) {
-            break;
-        }
-    }
+    let combinations = detector.generate_random_combinations(
+        &pertivency_vector,
+        payloads_list,
+        retrieval_params.combination_count(),
+        &mut StdRng::from_seed(seed),
+    );
+
+    let time_3 = Instant::now();
+
+    let (indices, solved_payloads) = retriever
+        .retrieve(&compress_indices, &combinations, seed)
+        .unwrap();
+
+    let time_4 = Instant::now();
 
     assert!(
         retriever.retrieval_set().difference(&pertinent_set).count() == 0,
         "retrieval failed"
     );
 
-    let time_info = detect_inner_time_list
-        .into_iter()
-        .fold(DetectTimeInfo::default(), |acc, b| acc + b);
+    for (&i, p) in indices.iter().zip(solved_payloads.iter()) {
+        if payloads_list[i] != *p {
+            println!("Fail {}", i);
+            let count = payloads_list[i]
+                .iter()
+                .zip(p.iter())
+                .filter(|(a, b)| a != b)
+                .count();
+            println!("Different count: {}", count);
+            panic!()
+        }
+    }
 
-    (time_1 - time_0, time_info, time_2 - time_1)
+    Time {
+        detect_time: time_1 - time_0,
+        compress_time: time_2 - time_1,
+        combine_time: time_3 - time_2,
+        retrieve_time: time_4 - time_3,
+    }
 }
