@@ -22,18 +22,17 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     // Extract clues
     let mut clues: Vec<LweCiphertext<ClueValue>> = clues.extract_all(detection_key.clue_modulus());
 
-    let clue_params_cipher_modulus_value = params.clue_params().cipher_modulus_value;
+    let clue_cipher_modulus_value = params.clue_params().cipher_modulus_value;
     let first_level_ring_dimension = params.first_level_ring_dimension();
 
     // Modulus switching to `2 * N_1`
-    if clue_params_cipher_modulus_value
-        != ModulusValue::PowerOf2(first_level_ring_dimension as ClueValue * 2)
-    {
+    let twice_first_level_ring_dimension = first_level_ring_dimension as ClueValue * 2;
+    if clue_cipher_modulus_value != ModulusValue::PowerOf2(twice_first_level_ring_dimension) {
         clues.iter_mut().for_each(|clue| {
             lwe_modulus_switch_assign(
                 clue,
-                clue_params_cipher_modulus_value,
-                first_level_ring_dimension as ClueValue * 2,
+                clue_cipher_modulus_value,
+                twice_first_level_ring_dimension,
             );
         });
     }
@@ -42,7 +41,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let clue = &clues[0];
 
-    c.bench_function("first level bootstrapping", |b| {
+    c.bench_function("blind ratation of first level bootstrapping", |b| {
         b.iter_batched(
             || detector.first_level_lut().clone(),
             |lut| first_level_blind_rotation_key.blind_rotate(lut, black_box(clue)),
@@ -51,14 +50,11 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     });
 
     // First level blind rotation and sum
-    use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
     let intermedia = clues
-        .par_iter()
+        .iter()
         .map(|c| first_level_blind_rotation_key.blind_rotate(detector.first_level_lut().clone(), c))
-        .reduce(
-            || <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension),
-            |acc, c| acc.add_element_wise(&c),
-        );
+        .reduce(|acc, ele| acc.add_element_wise(&ele))
+        .unwrap_or_else(|| <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension));
 
     // Key switching
     let intermedia = detection_key
@@ -68,7 +64,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let intermediate_lwe_params = params.intermediate_lwe_params();
     let intermediate_cipher_modulus_value = intermediate_lwe_params.cipher_modulus_value;
     let intermediate_cipher_modulus = intermediate_lwe_params.cipher_modulus;
-    let intermediate_plain_modulus = intermediate_lwe_params.plain_modulus_value;
+    let intermediate_plain_modulus_value = intermediate_lwe_params.plain_modulus_value;
 
     // Modulus switching
     let mut intermedia = lwe_modulus_switch(
@@ -77,7 +73,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         intermediate_cipher_modulus_value,
     );
 
-    let log_plain_modulus = intermediate_plain_modulus.trailing_zeros();
+    let log_plain_modulus = intermediate_plain_modulus_value.trailing_zeros();
 
     // Add `msg_count`
     let scale = (msg_count as InterLweValue) * {
@@ -108,7 +104,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let second_level_blind_rotation_key = detection_key.second_level_blind_rotation_key();
 
-    c.bench_function("second level bootstrapping", |b| {
+    c.bench_function("blind ratation of second level bootstrapping", |b| {
         b.iter_batched(
             || detector.second_level_lut().clone(),
             |lut| second_level_blind_rotation_key.blind_rotate(lut, black_box(&intermedia)),

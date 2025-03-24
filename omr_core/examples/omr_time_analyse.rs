@@ -54,9 +54,9 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    let num_threads_vec = vec![8, 16];
+    // let num_threads_vec = vec![8, 16];
     // let num_threads_vec = vec![1, 2, 4, 8, 16];
-    // let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 96, 128, 160, 192];
+    let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 96, 128, 160, 192];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {
