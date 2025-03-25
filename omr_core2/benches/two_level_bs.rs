@@ -1,3 +1,5 @@
+// cargo +nightly bench --package omr_core2 --bench two_level_bs --features="nightly"
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
 pub fn criterion_benchmark(c: &mut Criterion) {

@@ -1,3 +1,5 @@
+// cargo +nightly bench --package omr_core --bench omr --features="nightly"
+
 use std::collections::HashSet;
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};

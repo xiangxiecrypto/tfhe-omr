@@ -1,3 +1,5 @@
+// cargo +nightly bench --package omr_core --bench two_level_bs --features="nightly"
+
 use algebra::{
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
     Field,
