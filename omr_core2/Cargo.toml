@@ -4,7 +4,10 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-tfhe = { version = "1.0", features = ["boolean", "shortint"] }
+tfhe = { git = "https://github.com/zama-ai/tfhe-rs", features = [
+    "boolean",
+    "shortint",
+] }
 
 [features]
 default = []
