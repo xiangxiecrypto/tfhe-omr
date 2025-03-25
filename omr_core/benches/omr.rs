@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use fhe_core::CmLweCiphertext;
-use lattice::Rlwe;
+use lattice::NttRlwe;
 use omr_core::{KeyGen, OmrParameters, SecondLevelField};
 use rand::seq::SliceRandom;
 use rayon::iter::{IntoParallelRefIterator, ParallelIterator};
@@ -64,7 +64,7 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         )
         .collect();
 
-    let detect_list: Vec<Rlwe<SecondLevelField>> = clues_list
+    let detect_list: Vec<NttRlwe<SecondLevelField>> = clues_list
         .par_iter()
         .map(|clues| detector.detect(clues))
         .collect();

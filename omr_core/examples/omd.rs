@@ -42,16 +42,14 @@ fn main() {
     let (result, result2) = rayon::join(|| detector.detect(&clues), || detector.detect(&clues2));
     debug!("Detect done");
 
-    let poly =
-        result.b() - ntt_table.inverse_transform_inplace(ntt_table.transform(result.a()) * &**key);
+    let poly = ntt_table.inverse_transform_inplace(result.b() - result.a().clone() * &**key);
 
     let decrypted = poly.into_iter().map(decode).collect::<Vec<Inner>>();
 
     assert_eq!(decrypted[0], 1);
     assert!(decrypted[1..].iter().all(|&x| x == 0));
 
-    let poly2 = result2.b()
-        - ntt_table.inverse_transform_inplace(ntt_table.transform(result2.a()) * &**key);
+    let poly2 = ntt_table.inverse_transform_inplace(result2.b() - result2.a().clone() * &**key);
     let decrypted2 = poly2.into_iter().map(decode).collect::<Vec<Inner>>();
 
     assert!(decrypted2.iter().all(|&x| x == 0));

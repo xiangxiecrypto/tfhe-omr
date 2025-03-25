@@ -1,4 +1,5 @@
 // cargo +nightly run --package omr_core --example omr_time_analyse --features="nightly" --release
+// cargo run --package omr_core --example omr_time_analyse --release
 
 use std::{
     collections::HashSet,
@@ -10,7 +11,7 @@ use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
 
 use fhe_core::CmLweCiphertext;
-use lattice::Rlwe;
+use lattice::NttRlwe;
 use omr_core::{Detector, KeyGen, OmrParameters, Payload, Retriever, SecondLevelField, Sender};
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -56,9 +57,9 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    // let num_threads_vec = vec![8, 16];
+    let num_threads_vec = vec![16];
     // let num_threads_vec = vec![1, 2, 4, 8, 16];
-    let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 96, 128, 160, 180, 192, 360];
+    // let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 96, 128, 160, 180, 192, 360];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {
@@ -69,7 +70,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    for all_payloads_count in (0..=16).rev().map(|i| 1 << i) {
+    for all_payloads_count in (6..=11).rev().map(|i| 1 << i) {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
@@ -176,7 +177,7 @@ fn omr(
 
     let time_0 = Instant::now();
 
-    let pertivency_vector: Vec<Rlwe<SecondLevelField>> = clues_list
+    let pertivency_vector: Vec<NttRlwe<SecondLevelField>> = clues_list
         .par_iter()
         .map(|clues| detector.detect(clues))
         .collect();

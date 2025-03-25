@@ -1,9 +1,12 @@
+// cargo +nightly run --package omr_core --example omr --features="nightly" --release
+// cargo run --package omr_core --example omr --release
+
 use std::{collections::HashSet, time::Instant};
 
 use algebra::utils::Size;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
-use lattice::Rlwe;
+use lattice::NttRlwe;
 use omr_core::{Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender};
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -25,7 +28,7 @@ fn main() {
     let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 9;
+    let all_payloads_count = 1 << 10;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -128,7 +131,7 @@ fn omr(
 
     debug!("Detecting...");
     let start = Instant::now();
-    let pertivency_vector: Vec<Rlwe<SecondLevelField>> = clues_list
+    let pertivency_vector: Vec<NttRlwe<SecondLevelField>> = clues_list
         .par_iter()
         .progress_with(pb.clone())
         .map(|clues| detector.detect(clues))

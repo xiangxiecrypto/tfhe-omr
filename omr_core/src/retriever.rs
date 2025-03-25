@@ -12,10 +12,7 @@ use lattice::NttRlwe;
 use num_traits::{ConstZero, FromPrimitive, One, ToPrimitive};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-use crate::{
-    matrix::{solve_matrix_mod_256, transpose_matrix},
-    OmrError, Payload, RetrievalParams,
-};
+use crate::{matrix::solve_matrix_mod_256, OmrError, Payload, RetrievalParams};
 
 #[derive(Clone)]
 pub struct Retriever<F: NttField> {
@@ -119,23 +116,31 @@ impl<F: NttField> Retriever<F> {
 
         let retrieval_count = indices.len();
         let all_payloads_count = self.params.all_payloads_count();
-        let mut seed_rng = StdRng::from_seed(seed);
-        let mut weights = vec![0u8; combination_count * all_payloads_count];
-        seed_rng.fill_bytes(&mut weights);
 
-        let mut matrix = vec![vec![0u8; combination_count]; retrieval_count];
-        let mut matrix_iter = matrix.iter_mut();
-        for (i, weights_chunk) in weights.chunks_exact(combination_count).enumerate() {
-            if retrieval_set.contains(&i) {
+        let get_matrix = || {
+            let mut seed_rng = StdRng::from_seed(seed);
+            let mut weights = vec![0u8; combination_count * all_payloads_count];
+            seed_rng.fill_bytes(&mut weights);
+
+            let mut matrix = vec![vec![0u8; retrieval_count]; combination_count];
+            let mut matrix_iter = matrix.iter_mut();
+            for weights_chunk in weights.chunks_exact(all_payloads_count) {
                 let row = matrix_iter.next().unwrap();
-                row.copy_from_slice(weights_chunk);
+                row.iter_mut()
+                    .zip(indices.iter())
+                    .for_each(|(ele, &i): (&mut u8, &usize)| {
+                        *ele = weights_chunk[i];
+                    })
             }
-        }
+            matrix
+        };
 
-        let mut combined_payloads = self.decode_combined_payloads(combinations);
+        let (mut matrix, mut combined_payloads) = rayon::join(
+            || get_matrix(),
+            || self.decode_combined_payloads(combinations),
+        );
 
-        let mut transposed_matrix = transpose_matrix(&matrix);
-        let payloads = solve_matrix_mod_256(&mut transposed_matrix, &mut combined_payloads)?;
+        let payloads = solve_matrix_mod_256(&mut matrix, &mut combined_payloads)?;
 
         Ok((indices, payloads))
     }

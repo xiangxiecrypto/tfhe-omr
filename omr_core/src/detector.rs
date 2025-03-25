@@ -6,6 +6,7 @@ use std::{
 use itertools::izip;
 use num_traits::{ConstOne, Zero};
 use rand::prelude::*;
+use rayon::prelude::*;
 
 use algebra::{
     integer::{AsFrom, AsInto},
@@ -14,7 +15,7 @@ use algebra::{
     polynomial::{FieldNttPolynomial, FieldPolynomial},
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
     utils::Size,
-    Field,
+    Field, NttField,
 };
 use fhe_core::{
     lwe_modulus_switch, lwe_modulus_switch_assign, BlindRotationKey, CmLweCiphertext,
@@ -128,7 +129,10 @@ impl Detector {
     }
 
     /// Detects the message from the given clues.
-    pub fn detect(&self, clues: &CmLweCiphertext<ClueValue>) -> RlweCiphertext<SecondLevelField> {
+    pub fn detect(
+        &self,
+        clues: &CmLweCiphertext<ClueValue>,
+    ) -> NttRlweCiphertext<SecondLevelField> {
         let params = self.detection_key.params();
 
         let clues = extract_clues_and_modulus_switch(clues, params);
@@ -152,6 +156,9 @@ impl Detector {
             ciphertext,
             self.detection_key.trace_key(),
             self.detection_key.second_level_ring_dimension_inv(),
+            self.detection_key
+                .second_level_blind_rotation_key()
+                .ntt_table(),
         )
     }
 
@@ -159,7 +166,10 @@ impl Detector {
     pub fn detect_with_time_info(
         &self,
         clues: &CmLweCiphertext<ClueValue>,
-    ) -> (RlweCiphertext<SecondLevelField>, DetectTimeInfoPerMessage) {
+    ) -> (
+        NttRlweCiphertext<SecondLevelField>,
+        DetectTimeInfoPerMessage,
+    ) {
         let time_0 = Instant::now();
 
         let params = self.detection_key.params();
@@ -190,6 +200,9 @@ impl Detector {
             ciphertext,
             self.detection_key.trace_key(),
             self.detection_key.second_level_ring_dimension_inv(),
+            self.detection_key
+                .second_level_blind_rotation_key()
+                .ntt_table(),
         );
 
         let time_4 = Instant::now();
@@ -207,7 +220,7 @@ impl Detector {
     pub fn compress_pertivency_vector(
         &self,
         retrieval_params: RetrievalParams<SecondLevelField>,
-        pertivency_vector: &[RlweCiphertext<SecondLevelField>],
+        pertivency_vector: &[NttRlweCiphertext<SecondLevelField>],
     ) -> NttRlwe<SecondLevelField> {
         let ntt_table = self
             .detection_key
@@ -226,56 +239,69 @@ impl Detector {
         let mask = index_modulus - 1;
         let shift_bits = index_modulus.trailing_zeros();
 
-        let mut rng = rand::thread_rng();
-
-        let mut poly: FieldPolynomial<SecondLevelField> = FieldPolynomial::zero(polynomial_size);
-        let mut ntt_poly: FieldNttPolynomial<SecondLevelField> =
-            FieldNttPolynomial::zero(polynomial_size);
-
-        let mut ciphertext: NttRlwe<SecondLevelField> = NttRlwe::zero(polynomial_size);
-        let mut temp: NttRlwe<SecondLevelField> = NttRlwe::zero(polynomial_size);
-
-        pertivency_vector
-            .iter()
+        let ciphertext = pertivency_vector
+            .par_chunks(512)
             .enumerate()
-            .for_each(|(i, detect)| {
-                poly.set_zero();
+            .map_init(
+                || rand::thread_rng(),
+                |rng, (chunk_i, chunk)| {
+                    let mut poly: FieldPolynomial<SecondLevelField> =
+                        FieldPolynomial::zero(polynomial_size);
+                    let mut ntt_poly: FieldNttPolynomial<SecondLevelField> =
+                        FieldNttPolynomial::zero(polynomial_size);
 
-                poly.as_mut_slice()
-                    .chunks_exact_mut(slots_per_retrieval)
-                    .zip(budget_distr.sample_iter(&mut rng))
-                    .for_each(
-                        |(chunk, budget_index): (
-                            &mut [<SecondLevelField as Field>::ValueT],
-                            usize,
-                        )| {
-                            let mut i: <SecondLevelField as Field>::ValueT = AsFrom::as_from(i);
-                            let address = budget_index * slots_per_budget;
+                    let mut temp: NttRlwe<SecondLevelField> = NttRlwe::zero(polynomial_size);
+                    let mut chunk_result: NttRlwe<SecondLevelField> =
+                        NttRlwe::zero(polynomial_size);
 
-                            let mut k = 0;
-                            while !i.is_zero() {
-                                chunk[address + k] = i & mask;
-                                i >>= shift_bits;
-                                k += 1;
-                            }
+                    chunk.iter().enumerate().for_each(|(j, detect)| {
+                        let i = 512 * chunk_i + j;
 
-                            chunk[address + index_slots_per_budget] = ConstOne::ONE;
-                        },
-                    );
+                        poly.set_zero();
 
-                ntt_poly.copy_from(&poly);
-                ntt_table.transform_slice(ntt_poly.as_mut_slice());
+                        poly.as_mut_slice()
+                            .chunks_exact_mut(slots_per_retrieval)
+                            .zip(budget_distr.sample_iter(&mut *rng))
+                            .for_each(
+                                |(chunk, budget_index): (
+                                    &mut [<SecondLevelField as Field>::ValueT],
+                                    usize,
+                                )| {
+                                    let mut i: <SecondLevelField as Field>::ValueT =
+                                        AsFrom::as_from(i);
+                                    let address = budget_index * slots_per_budget;
 
-                detect.mul_ntt_polynomial_inplace(&ntt_poly, ntt_table, &mut temp);
-                ciphertext.add_assign_element_wise(&temp);
-            });
+                                    let mut k = 0;
+                                    while !i.is_zero() {
+                                        chunk[address + k] = i & mask;
+                                        i >>= shift_bits;
+                                        k += 1;
+                                    }
+
+                                    chunk[address + index_slots_per_budget] = ConstOne::ONE;
+                                },
+                            );
+
+                        ntt_poly.copy_from(&poly);
+                        ntt_table.transform_slice(ntt_poly.as_mut_slice());
+
+                        detect.mul_ntt_polynomial_inplace(&ntt_poly, &mut temp);
+                        chunk_result.add_assign_element_wise(&temp);
+                    });
+                    chunk_result
+                },
+            )
+            .reduce(
+                || <NttRlwe<SecondLevelField>>::zero(polynomial_size),
+                |a, b| a.add_element_wise(&b),
+            );
 
         ciphertext
     }
 
     pub fn generate_random_combinations<R>(
         &self,
-        pertivency_vector: &[RlweCiphertext<SecondLevelField>],
+        pertivency_vector: &[NttRlweCiphertext<SecondLevelField>],
         payloads: &[Payload],
         combination_count: usize,
         rng: &mut R,
@@ -294,37 +320,35 @@ impl Detector {
         let mut combinations =
             vec![NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension); combination_count];
 
-        let mut payload_ntt_poly = FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
-
         let mut all_weights = vec![0u8; combination_count * payloads_count];
-
-        let mut ntt_pv = NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension);
 
         rng.fill_bytes(&mut all_weights);
 
-        for (pv, payload, weights_chunk) in izip!(
-            pertivency_vector.iter(),
-            payloads.iter(),
-            all_weights.chunks_exact(combination_count)
-        ) {
-            pv.transform_inplace(ntt_table, &mut ntt_pv);
+        combinations
+            .par_iter_mut()
+            .zip(all_weights.par_chunks_exact(payloads_count))
+            .for_each(|(cmb, weights)| {
+                let mut payload_ntt_poly =
+                    FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
 
-            for (cmb, &weight) in izip!(combinations.iter_mut(), weights_chunk) {
-                payload_ntt_poly.set_zero();
+                for (pv, payload, &weight) in
+                    izip!(pertivency_vector.iter(), payloads.iter(), weights)
+                {
+                    payload_ntt_poly.set_zero();
 
-                let weighted_payload = *payload * weight;
-                payload_ntt_poly
-                    .iter_mut()
-                    .zip(weighted_payload.0.iter())
-                    .for_each(|(a, &b)| {
-                        *a = b as <SecondLevelField as Field>::ValueT;
-                    });
+                    let weighted_payload = *payload * weight;
+                    payload_ntt_poly
+                        .iter_mut()
+                        .zip(weighted_payload.0.iter())
+                        .for_each(|(a, &b)| {
+                            *a = b as <SecondLevelField as Field>::ValueT;
+                        });
 
-                ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
+                    ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
 
-                cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&ntt_pv, &payload_ntt_poly);
-            }
-        }
+                    cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&pv, &payload_ntt_poly);
+                }
+            });
 
         combinations
     }
@@ -491,10 +515,11 @@ fn hom_trace(
     mut ciphertext: RlweCiphertext<SecondLevelField>,
     trace_key: &TraceKey<SecondLevelField>,
     n_inv: ShoupFactor<<SecondLevelField as Field>::ValueT>,
-) -> RlweCiphertext<SecondLevelField> {
+    ntt_table: &<SecondLevelField as NttField>::Table,
+) -> NttRlweCiphertext<SecondLevelField> {
     // Multiply by `n_inv`
     ciphertext.a_mut().mul_shoup_scalar_assign(n_inv);
     ciphertext.b_mut().mul_shoup_scalar_assign(n_inv);
     // Homomorphic Trace
-    trace_key.trace(&ciphertext)
+    trace_key.trace(&ciphertext).to_ntt_rlwe(ntt_table)
 }
