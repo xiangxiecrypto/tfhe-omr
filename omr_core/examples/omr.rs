@@ -152,6 +152,7 @@ fn omr(
 
     let compress_start = Instant::now();
     let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
+        .into_par_iter()
         .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
         .collect();
     let compress_end = Instant::now();

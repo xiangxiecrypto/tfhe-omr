@@ -6,6 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use chrono::prelude::*;
 use rand::prelude::*;
 use rayon::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -44,6 +45,7 @@ pub struct Time {
 }
 
 fn main() {
+    let offset = FixedOffset::east_opt(8 * 60 * 60).unwrap();
     let mut wtr = csv::Writer::from_path("benchmark.csv").unwrap();
 
     let params = OmrParameters::new();
@@ -70,7 +72,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    for all_payloads_count in (6..=11).rev().map(|i| 1 << i) {
+    for all_payloads_count in (0..=16).rev().map(|i| 1 << i) {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
@@ -83,6 +85,7 @@ fn main() {
             let mut retriever =
                 secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
 
+            println!("Each Start time: {}", Utc::now().with_timezone(&offset));
             let time = pool.install(|| {
                 omr(
                     &detector,
@@ -105,9 +108,9 @@ fn main() {
             };
             println!("{:#?}\n\n", record);
             wtr.serialize(record).unwrap();
+            wtr.flush().unwrap();
         }
     }
-    wtr.flush().unwrap();
 }
 
 fn get_pertinent_count(all_payloads_count: usize) -> usize {
@@ -185,6 +188,7 @@ fn omr(
     let time_1 = Instant::now();
 
     let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
+        .into_par_iter()
         .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
         .collect();
 

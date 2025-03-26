@@ -240,22 +240,22 @@ impl Detector {
         let shift_bits = index_modulus.trailing_zeros();
 
         let ciphertext = pertivency_vector
-            .par_chunks(512)
+            .par_chunks(256)
             .enumerate()
             .map_init(
-                || rand::thread_rng(),
-                |rng, (chunk_i, chunk)| {
-                    let mut poly: FieldPolynomial<SecondLevelField> =
-                        FieldPolynomial::zero(polynomial_size);
-                    let mut ntt_poly: FieldNttPolynomial<SecondLevelField> =
-                        FieldNttPolynomial::zero(polynomial_size);
-
-                    let mut temp: NttRlwe<SecondLevelField> = NttRlwe::zero(polynomial_size);
+                || {
+                    (
+                        rand::thread_rng(),
+                        <FieldNttPolynomial<SecondLevelField>>::zero(polynomial_size),
+                        <NttRlwe<SecondLevelField>>::zero(polynomial_size),
+                    )
+                },
+                |(rng, poly, temp), (chunk_i, chunk)| {
                     let mut chunk_result: NttRlwe<SecondLevelField> =
                         NttRlwe::zero(polynomial_size);
 
                     chunk.iter().enumerate().for_each(|(j, detect)| {
-                        let i = 512 * chunk_i + j;
+                        let i = 256 * chunk_i + j;
 
                         poly.set_zero();
 
@@ -282,10 +282,9 @@ impl Detector {
                                 },
                             );
 
-                        ntt_poly.copy_from(&poly);
-                        ntt_table.transform_slice(ntt_poly.as_mut_slice());
+                        ntt_table.transform_slice(poly.as_mut_slice());
 
-                        detect.mul_ntt_polynomial_inplace(&ntt_poly, &mut temp);
+                        detect.mul_ntt_polynomial_inplace(&poly, temp);
                         chunk_result.add_assign_element_wise(&temp);
                     });
                     chunk_result
