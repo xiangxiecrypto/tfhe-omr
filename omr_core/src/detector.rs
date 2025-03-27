@@ -25,7 +25,7 @@ use lattice::NttRlwe;
 
 use crate::{
     ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, OmrParameters, Payload,
-    RetrievalParams, SecondLevelField,
+    RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
 };
 
 /// The detector for OMR.
@@ -311,6 +311,9 @@ impl Detector {
         let payloads_count = payloads.len();
 
         let ring_dimension = self.detection_key.params().second_level_ring_dimension();
+        let cmb_count_per_cipher = ring_dimension / PAYLOAD_LENGTH;
+        let cmb_cipher_count = combination_count.div_ceil(cmb_count_per_cipher);
+
         let ntt_table = self
             .detection_key
             .second_level_blind_rotation_key()
@@ -326,9 +329,12 @@ impl Detector {
         combinations
             .par_iter_mut()
             .zip(all_weights.par_chunks_exact(payloads_count))
-            .for_each(|(cmb, weights)| {
+            .enumerate()
+            .for_each(|(i, (cmb, weights))| {
                 let mut payload_ntt_poly =
                     FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
+
+                let start = PAYLOAD_LENGTH * (i % cmb_count_per_cipher);
 
                 for (pv, payload, &weight) in
                     izip!(pertivency_vector.iter(), payloads.iter(), weights)
@@ -336,7 +342,7 @@ impl Detector {
                     payload_ntt_poly.set_zero();
 
                     let weighted_payload = *payload * weight;
-                    payload_ntt_poly
+                    payload_ntt_poly[start..]
                         .iter_mut()
                         .zip(weighted_payload.0.iter())
                         .for_each(|(a, &b)| {
@@ -349,7 +355,17 @@ impl Detector {
                 }
             });
 
-        combinations
+        let mut res = Vec::with_capacity(cmb_cipher_count);
+
+        for (i, cmb) in combinations.into_iter().enumerate() {
+            if i % cmb_count_per_cipher == 0 {
+                res.push(cmb);
+            } else {
+                res.last_mut().unwrap().add_assign_element_wise(&cmb);
+            }
+        }
+
+        res
     }
 }
 

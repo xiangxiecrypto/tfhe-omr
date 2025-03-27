@@ -12,7 +12,7 @@ use lattice::NttRlwe;
 use num_traits::{ConstZero, FromPrimitive, One, ToPrimitive};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
-use crate::{matrix::solve_matrix_mod_256, OmrError, Payload, RetrievalParams};
+use crate::{matrix::solve_matrix_mod_256, OmrError, Payload, RetrievalParams, PAYLOAD_LENGTH};
 
 #[derive(Clone)]
 pub struct Retriever<F: NttField> {
@@ -102,7 +102,8 @@ impl<F: NttField> Retriever<F> {
         combinations: &[NttRlweCiphertext<F>],
         seed: [u8; 32],
     ) -> Result<(Vec<usize>, Vec<Payload>), OmrError> {
-        let combination_count = combinations.len();
+        let combination_count = self.params.combination_count();
+        let all_payloads_count = self.params.all_payloads_count();
 
         for ciphertext in compress_indices.iter() {
             if self.retrieve_indices(ciphertext).is_ok() {
@@ -115,7 +116,6 @@ impl<F: NttField> Retriever<F> {
         indices.sort_unstable();
 
         let retrieval_count = indices.len();
-        let all_payloads_count = self.params.all_payloads_count();
 
         let get_matrix = || {
             let mut seed_rng = StdRng::from_seed(seed);
@@ -146,31 +146,61 @@ impl<F: NttField> Retriever<F> {
     }
 
     pub fn decode_combined_payloads(&self, combinations: &[NttRlweCiphertext<F>]) -> Vec<Payload> {
-        let combination_count = combinations.len();
+        let combination_count = self.params.combination_count();
+        let ring_dimension = self.params.polynomial_size();
+        let cmb_count_per_cipher = ring_dimension / PAYLOAD_LENGTH;
+
         let q = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
         let p = BigDecimal::from_u16(256).unwrap();
 
         let mut payloads = vec![Payload::new(); combination_count];
         let mut temp = <FieldNttPolynomial<F>>::zero(self.ntt_table.dimension());
 
-        payloads.iter_mut().zip(combinations.iter()).for_each(
-            |(payload, cipher): (&mut Payload, &NttRlweCiphertext<F>)| {
-                sub_mul(cipher.b(), cipher.a(), &self.key, &mut temp);
-                self.ntt_table.inverse_transform_slice(temp.as_mut_slice());
+        payloads
+            .chunks_mut(cmb_count_per_cipher)
+            .zip(combinations.iter())
+            .for_each(
+                |(payload_chunk, cipher): (&mut [Payload], &NttRlweCiphertext<F>)| {
+                    sub_mul(cipher.b(), cipher.a(), &self.key, &mut temp);
+                    self.ntt_table.inverse_transform_slice(temp.as_mut_slice());
+                    payload_chunk
+                        .iter_mut()
+                        .zip(temp.as_slice().chunks_exact(PAYLOAD_LENGTH))
+                        .for_each(|(payload, dec_chunk)| {
+                            payload
+                                .iter_mut()
+                                .zip(dec_chunk.iter())
+                                .for_each(|(byte, &coeff)| {
+                                    let mut t =
+                                        (BigDecimal::from_u64(coeff.as_into()).unwrap() * &p / &q)
+                                            .with_scale_round(0, RoundingMode::HalfUp);
+                                    if t >= q {
+                                        t -= &q;
+                                    }
+                                    *byte = t.to_u64().unwrap() as u8;
+                                });
+                        })
+                },
+            );
 
-                payload
-                    .iter_mut()
-                    .zip(temp.iter())
-                    .for_each(|(byte, &coeff)| {
-                        let mut t = (BigDecimal::from_u64(coeff.as_into()).unwrap() * &p / &q)
-                            .with_scale_round(0, RoundingMode::HalfUp);
-                        if t >= q {
-                            t -= &q;
-                        }
-                        *byte = t.to_u64().unwrap() as u8;
-                    });
-            },
-        );
+        // payloads.iter_mut().zip(combinations.iter()).for_each(
+        //     |(payload, cipher): (&mut Payload, &NttRlweCiphertext<F>)| {
+        //         sub_mul(cipher.b(), cipher.a(), &self.key, &mut temp);
+        //         self.ntt_table.inverse_transform_slice(temp.as_mut_slice());
+
+        //         payload
+        //             .iter_mut()
+        //             .zip(temp.iter())
+        //             .for_each(|(byte, &coeff)| {
+        //                 let mut t = (BigDecimal::from_u64(coeff.as_into()).unwrap() * &p / &q)
+        //                     .with_scale_round(0, RoundingMode::HalfUp);
+        //                 if t >= q {
+        //                     t -= &q;
+        //                 }
+        //                 *byte = t.to_u64().unwrap() as u8;
+        //             });
+        //     },
+        // );
         payloads
     }
 }
