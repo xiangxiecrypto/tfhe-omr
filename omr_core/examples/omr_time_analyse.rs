@@ -61,7 +61,7 @@ fn main() {
 
     let num_threads_vec = vec![16];
     // let num_threads_vec = vec![1, 2, 4, 8, 16];
-    // let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 96, 128, 160, 180, 192, 360];
+    // let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {

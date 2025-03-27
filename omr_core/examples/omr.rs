@@ -28,7 +28,7 @@ fn main() {
     let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 10;
+    let all_payloads_count = 1 << 11;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -44,6 +44,7 @@ fn main() {
     let secret_key_pack2 = KeyGen::generate_secret_key(params.clone(), &mut rng);
 
     println!("secret key size: {} bytes", secret_key_pack.size());
+    println!("z2 key size: {} bytes", secret_key_pack.z2_size());
 
     debug!("Generating sender and detector...");
     let sender = secret_key_pack.generate_sender(&mut rng);
@@ -54,6 +55,31 @@ fn main() {
     let detector = secret_key_pack.generate_detector(&mut rng);
 
     println!("detect key size: {} bytes", detector.detect_key_size());
+    println!(
+        "first level bootstrapping key size: {} bytes",
+        detector
+            .detection_key()
+            .first_level_blind_rotation_key()
+            .size()
+    );
+    println!(
+        "first level key switching key size: {} bytes",
+        detector
+            .detection_key()
+            .first_level_key_switching_key()
+            .size()
+    );
+    println!(
+        "second level bootstrapping key size: {} bytes",
+        detector
+            .detection_key()
+            .second_level_blind_rotation_key()
+            .size()
+    );
+    println!(
+        "trace key size: {} bytes",
+        detector.detection_key().trace_key().size()
+    );
 
     omr(
         all_payloads_count,
@@ -162,6 +188,11 @@ fn omr(
         (compress_end - compress_start) / max_retrieve_cipher_count as u32
     );
 
+    println!(
+        "compress_indices size {} bytes",
+        compress_indices.iter().map(|c| c.size()).sum::<usize>()
+    );
+
     let seed = rng.gen();
 
     let combine_start = Instant::now();
@@ -173,6 +204,11 @@ fn omr(
     );
     let combine_end = Instant::now();
     info!("combine time: {:?}", combine_end - combine_start);
+
+    println!(
+        "combinations size {} bytes",
+        combinations.iter().map(|c| c.size()).sum::<usize>()
+    );
 
     let retrieve_start = Instant::now();
     let (indices, solved_payloads) = retriever

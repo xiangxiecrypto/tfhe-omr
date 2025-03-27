@@ -267,6 +267,12 @@ impl SecretKeyPack {
         self.clue_secret_key
             .decrypt::<ClueValue, _>(clue, self.parameters.clue_params())
     }
+
+    /// z2 key size
+    #[inline]
+    pub fn z2_size(&self) -> usize {
+        self.second_level_rlwe_secret_key.size()
+    }
 }
 
 impl Size for SecretKeyPack {
