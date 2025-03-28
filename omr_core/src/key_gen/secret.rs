@@ -199,6 +199,7 @@ impl SecretKeyPack {
             pertinent_count,
             130,
             25,
+            2,
         );
         Retriever::new(
             retrieval_params,

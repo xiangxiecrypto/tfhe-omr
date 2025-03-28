@@ -32,6 +32,9 @@ pub struct RetrievalParams<F: NttField> {
     /// The number of combinations of pertinent payloads.
     combination_count: usize,
 
+    /// The number of combinations of pertinent payloads per ciphertext.
+    cmb_count_per_cipher: usize,
+
     /// The number of all payloads count on the board.
     all_payloads_count: usize,
 }
@@ -45,6 +48,7 @@ impl<F: NttField> RetrievalParams<F> {
         pertinent_count: usize,
         budget_count_per_retrieval: usize,
         retrieve_count: usize,
+        cmb_count_per_cipher: usize,
     ) -> Self {
         let index_slots_per_budget = all_payloads_count
             .next_power_of_two()
@@ -72,6 +76,7 @@ impl<F: NttField> RetrievalParams<F> {
             pertinent_count,
             combination_count: pertinent_count + 10,
             all_payloads_count,
+            cmb_count_per_cipher,
         }
     }
 
@@ -121,5 +126,9 @@ impl<F: NttField> RetrievalParams<F> {
 
     pub fn all_payloads_count(&self) -> usize {
         self.all_payloads_count
+    }
+
+    pub fn cmb_count_per_cipher(&self) -> usize {
+        self.cmb_count_per_cipher
     }
 }

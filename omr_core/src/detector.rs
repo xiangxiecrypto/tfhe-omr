@@ -3,7 +3,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-use itertools::izip;
 use num_traits::{ConstOne, Zero};
 use rand::prelude::*;
 use rayon::prelude::*;
@@ -303,6 +302,7 @@ impl Detector {
         pertivency_vector: &[NttRlweCiphertext<SecondLevelField>],
         payloads: &[Payload],
         combination_count: usize,
+        cmb_count_per_cipher: usize,
         rng: &mut R,
     ) -> Vec<NttRlweCiphertext<SecondLevelField>>
     where
@@ -311,7 +311,6 @@ impl Detector {
         let payloads_count = payloads.len();
 
         let ring_dimension = self.detection_key.params().second_level_ring_dimension();
-        let cmb_count_per_cipher = ring_dimension / PAYLOAD_LENGTH;
         let cmb_cipher_count = combination_count.div_ceil(cmb_count_per_cipher);
 
         let ntt_table = self
@@ -320,7 +319,7 @@ impl Detector {
             .ntt_table();
 
         let mut combinations =
-            vec![NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension); combination_count];
+            vec![NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension); cmb_cipher_count];
 
         let mut all_weights = vec![0u8; combination_count * payloads_count];
 
@@ -328,44 +327,39 @@ impl Detector {
 
         combinations
             .par_iter_mut()
-            .zip(all_weights.par_chunks_exact(payloads_count))
-            .enumerate()
-            .for_each(|(i, (cmb, weights))| {
+            .zip(all_weights.par_chunks(cmb_count_per_cipher * payloads_count))
+            .for_each(|(cmb, weights_chunk)| {
                 let mut payload_ntt_poly =
                     FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
 
-                let start = PAYLOAD_LENGTH * (i % cmb_count_per_cipher);
+                pertivency_vector
+                    .iter()
+                    .zip(payloads.iter())
+                    .enumerate()
+                    .for_each(|(i, (pv, payload))| {
+                        payload_ntt_poly.set_zero();
 
-                for (pv, payload, &weight) in
-                    izip!(pertivency_vector.iter(), payloads.iter(), weights)
-                {
-                    payload_ntt_poly.set_zero();
+                        for (poly_chunk, &weight) in payload_ntt_poly
+                            .as_mut_slice()
+                            .chunks_exact_mut(PAYLOAD_LENGTH)
+                            .zip(weights_chunk[i..].iter().step_by(payloads_count))
+                        {
+                            let weighted_payload = *payload * weight;
+                            poly_chunk
+                                .iter_mut()
+                                .zip(weighted_payload.0.iter())
+                                .for_each(|(a, &b)| {
+                                    *a = b as <SecondLevelField as Field>::ValueT;
+                                });
+                        }
 
-                    let weighted_payload = *payload * weight;
-                    payload_ntt_poly[start..]
-                        .iter_mut()
-                        .zip(weighted_payload.0.iter())
-                        .for_each(|(a, &b)| {
-                            *a = b as <SecondLevelField as Field>::ValueT;
-                        });
+                        ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
 
-                    ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
-
-                    cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&pv, &payload_ntt_poly);
-                }
+                        cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&pv, &payload_ntt_poly);
+                    });
             });
 
-        let mut res = Vec::with_capacity(cmb_cipher_count);
-
-        for (i, cmb) in combinations.into_iter().enumerate() {
-            if i % cmb_count_per_cipher == 0 {
-                res.push(cmb);
-            } else {
-                res.last_mut().unwrap().add_assign_element_wise(&cmb);
-            }
-        }
-
-        res
+        combinations
     }
 }
 

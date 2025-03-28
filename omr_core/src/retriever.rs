@@ -67,10 +67,10 @@ impl<F: NttField> Retriever<F> {
             .map(|c: F::ValueT| {
                 let mut t = (BigDecimal::from_u64(c.as_into()).unwrap() * &p / &q)
                     .with_scale_round(0, RoundingMode::HalfUp);
-                if t >= q {
-                    t -= &q;
+                if t >= p {
+                    t -= &p;
                 }
-                (t % &p).to_u64().unwrap().as_into()
+                t.to_u64().unwrap().as_into()
             })
             .collect::<Vec<F::ValueT>>();
 
@@ -147,8 +147,7 @@ impl<F: NttField> Retriever<F> {
 
     pub fn decode_combined_payloads(&self, combinations: &[NttRlweCiphertext<F>]) -> Vec<Payload> {
         let combination_count = self.params.combination_count();
-        let ring_dimension = self.params.polynomial_size();
-        let cmb_count_per_cipher = ring_dimension / PAYLOAD_LENGTH;
+        let cmb_count_per_cipher = self.params.cmb_count_per_cipher();
 
         let q = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
         let p = BigDecimal::from_u16(256).unwrap();
@@ -174,8 +173,8 @@ impl<F: NttField> Retriever<F> {
                                     let mut t =
                                         (BigDecimal::from_u64(coeff.as_into()).unwrap() * &p / &q)
                                             .with_scale_round(0, RoundingMode::HalfUp);
-                                    if t >= q {
-                                        t -= &q;
+                                    if t >= p {
+                                        t -= &p;
                                     }
                                     *byte = t.to_u64().unwrap() as u8;
                                 });

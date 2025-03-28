@@ -28,7 +28,7 @@ fn main() {
     let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 11;
+    let all_payloads_count = 1 << 14;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -112,11 +112,13 @@ fn omr(
     pertinent.shuffle(rng);
 
     let mut pertinent_set = HashSet::new();
-    pertinent.iter().enumerate().for_each(|(i, &f)| {
-        if f {
+    pertinent
+        .iter()
+        .enumerate()
+        .filter(|(_i, f)| **f)
+        .for_each(|(i, _)| {
             pertinent_set.insert(i as usize);
-        }
-    });
+        });
 
     debug!("Generating clues...");
     let start = Instant::now();
@@ -200,6 +202,7 @@ fn omr(
         &pertivency_vector,
         &payloads,
         retrieval_params.combination_count(),
+        retrieval_params.cmb_count_per_cipher(),
         &mut StdRng::from_seed(seed),
     );
     let combine_end = Instant::now();

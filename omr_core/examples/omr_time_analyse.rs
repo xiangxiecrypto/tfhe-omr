@@ -132,11 +132,13 @@ fn generate_pertinent_tag(all_payloads_count: usize, pertinent_count: usize) -> 
 
 fn generate_pertinent_set(pertinent_tag: &[bool]) -> HashSet<usize> {
     let mut pertinent_set = HashSet::new();
-    pertinent_tag.iter().enumerate().for_each(|(i, &f)| {
-        if f {
-            pertinent_set.insert(i);
-        }
-    });
+    pertinent_tag
+        .iter()
+        .enumerate()
+        .filter(|(_i, f)| **f)
+        .for_each(|(i, _)| {
+            pertinent_set.insert(i as usize);
+        });
     pertinent_set
 }
 
@@ -198,6 +200,7 @@ fn omr(
         &pertivency_vector,
         payloads_list,
         retrieval_params.combination_count(),
+        retrieval_params.cmb_count_per_cipher(),
         &mut StdRng::from_seed(seed),
     );
 
