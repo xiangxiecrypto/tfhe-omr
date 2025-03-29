@@ -96,6 +96,64 @@ impl<F: NttField> Retriever<F> {
         }
     }
 
+    pub fn test_combine(
+        &self,
+        indices: &[usize],
+        combinations: &[NttRlweCiphertext<F>],
+        payloads: &[Payload],
+        seed: [u8; 32],
+    ) {
+        let combination_count = self.params.combination_count();
+        let all_payloads_count = self.params.all_payloads_count();
+
+        let retrieval_count = indices.len();
+
+        let get_matrix = || {
+            let mut seed_rng = StdRng::from_seed(seed);
+            let mut weights = vec![0u8; combination_count * all_payloads_count];
+            seed_rng.fill_bytes(&mut weights);
+
+            let mut matrix = vec![vec![0u8; retrieval_count]; combination_count];
+            let mut matrix_iter = matrix.iter_mut();
+            for weights_chunk in weights.chunks_exact(all_payloads_count) {
+                let row = matrix_iter.next().unwrap();
+                row.iter_mut()
+                    .zip(indices.iter())
+                    .for_each(|(ele, &i): (&mut u8, &usize)| {
+                        *ele = weights_chunk[i];
+                    })
+            }
+            matrix
+        };
+
+        let (matrix, combined_payloads) = rayon::join(
+            || get_matrix(),
+            || self.decode_combined_payloads(combinations),
+        );
+
+        for (row, &cmb) in matrix.iter().zip(combined_payloads.iter()) {
+            let payload = row
+                .iter()
+                .zip(indices.iter())
+                .fold(Payload::new(), |acc, (&weight, &i)| {
+                    acc + (payloads[i] * weight)
+                });
+            if payload != cmb {
+                let count = payload
+                    .iter()
+                    .zip(cmb.iter())
+                    .enumerate()
+                    .filter(|(_i, (a, b))| a != b)
+                    .map(|(i, (a, b))| {
+                        println!("Different at {}: {} != {}", i, a, b);
+                        ()
+                    })
+                    .count();
+                panic!("Different count: {}", count);
+            }
+        }
+    }
+
     pub fn retrieve(
         &mut self,
         compress_indices: &[NttRlwe<F>],

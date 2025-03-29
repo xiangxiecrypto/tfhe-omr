@@ -28,7 +28,7 @@ fn main() {
     let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 14;
+    let all_payloads_count = 1 << 10;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -212,6 +212,11 @@ fn omr(
         "combinations size {} bytes",
         combinations.iter().map(|c| c.size()).sum::<usize>()
     );
+
+    let mut indices = pertinent_set.iter().copied().collect::<Vec<usize>>();
+    indices.sort_unstable();
+
+    retriever.test_combine(&indices, &combinations, &payloads, seed);
 
     let retrieve_start = Instant::now();
     let (indices, solved_payloads) = retriever
