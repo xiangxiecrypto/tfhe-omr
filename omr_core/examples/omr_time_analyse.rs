@@ -44,8 +44,9 @@ pub struct Time {
     retrieve_time: Duration,
 }
 
+const OFFEST: FixedOffset = FixedOffset::east_opt(8 * 60 * 60).unwrap();
+
 fn main() {
-    let offset = FixedOffset::east_opt(8 * 60 * 60).unwrap();
     let mut wtr = csv::Writer::from_path("benchmark.csv").unwrap();
 
     let params = OmrParameters::new();
@@ -59,9 +60,9 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    let num_threads_vec = vec![16];
+    // let num_threads_vec = vec![16];
     // let num_threads_vec = vec![1, 2, 4, 8, 16];
-    // let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
+    let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {
@@ -85,7 +86,7 @@ fn main() {
             let mut retriever =
                 secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
 
-            println!("Each Start time: {}", Utc::now().with_timezone(&offset));
+            println!("Each Start time: {}", Utc::now().with_timezone(&OFFEST));
             let time = pool.install(|| {
                 omr(
                     &detector,
