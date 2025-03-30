@@ -16,8 +16,8 @@ pub fn solve_matrix_mod_256(
     for i in 0..num_cols {
         // Find the first row with an odd value in the i-th column
         let mut odd_index = None;
-        for j in i..num_rows {
-            if matrix[j][i] % 2 == 1 {
+        for (j, row) in matrix.iter().enumerate().take(num_rows).skip(i) {
+            if row[i] % 2 == 1 {
                 odd_index = Some(j);
                 break;
             }

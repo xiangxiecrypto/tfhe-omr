@@ -126,10 +126,9 @@ impl<F: NttField> Retriever<F> {
             matrix
         };
 
-        let (matrix, combined_payloads) = rayon::join(
-            || get_matrix(),
-            || self.decode_combined_payloads_with_noise(combinations),
-        );
+        let (matrix, combined_payloads) = rayon::join(get_matrix, || {
+            self.decode_combined_payloads_with_noise(combinations)
+        });
 
         for (row, &cmb) in matrix.iter().zip(combined_payloads.iter()) {
             let payload = row
@@ -146,7 +145,6 @@ impl<F: NttField> Retriever<F> {
                     .filter(|(_i, (a, b))| a != b)
                     .map(|(i, (a, b))| {
                         println!("Different at {}: {} != {}", i, a, b);
-                        ()
                     })
                     .count();
                 panic!("Different count: {}", count);
@@ -193,10 +191,8 @@ impl<F: NttField> Retriever<F> {
             matrix
         };
 
-        let (mut matrix, mut combined_payloads) = rayon::join(
-            || get_matrix(),
-            || self.decode_combined_payloads(combinations),
-        );
+        let (mut matrix, mut combined_payloads) =
+            rayon::join(get_matrix, || self.decode_combined_payloads(combinations));
 
         let payloads = solve_matrix_mod_256(&mut matrix, &mut combined_payloads)?;
 

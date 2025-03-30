@@ -238,6 +238,10 @@ impl Detector {
         let mask = index_modulus - 1;
         let shift_bits = index_modulus.trailing_zeros();
 
+        let q = <SecondLevelField as Field>::MODULUS_VALUE;
+        let p = self.detection_key().params().output_plain_modulus_value();
+        let half_p = p >> 1;
+
         let ciphertext = pertivency_vector
             .par_chunks(256)
             .enumerate()
@@ -272,7 +276,8 @@ impl Detector {
 
                                     let mut k = 0;
                                     while !i.is_zero() {
-                                        chunk[address + k] = i & mask;
+                                        let v = i & mask;
+                                        chunk[address + k] = if v < half_p { v } else { q - p + v };
                                         i >>= shift_bits;
                                         k += 1;
                                     }
@@ -283,8 +288,8 @@ impl Detector {
 
                         ntt_table.transform_slice(poly.as_mut_slice());
 
-                        detect.mul_ntt_polynomial_inplace(&poly, temp);
-                        chunk_result.add_assign_element_wise(&temp);
+                        detect.mul_ntt_polynomial_inplace(poly, temp);
+                        chunk_result.add_assign_element_wise(temp);
                     });
                     chunk_result
                 },
@@ -326,7 +331,8 @@ impl Detector {
         rng.fill_bytes(&mut all_weights);
 
         let q = <SecondLevelField as Field>::MODULUS_VALUE;
-        let half_p = 128;
+        let p = self.detection_key().params().output_plain_modulus_value();
+        let half_p = p >> 1;
 
         combinations
             .par_iter_mut()
@@ -352,17 +358,14 @@ impl Detector {
                                 .iter_mut()
                                 .zip(weighted_payload.0.iter())
                                 .for_each(|(a, &b)| {
-                                    if b < half_p {
-                                        *a = b as <SecondLevelField as Field>::ValueT;
-                                    } else {
-                                        *a = q - 256 + b as <SecondLevelField as Field>::ValueT;
-                                    }
+                                    let b = b as <SecondLevelField as Field>::ValueT;
+                                    *a = if b < half_p { b } else { q - p + b };
                                 });
                         }
 
                         ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
 
-                        cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(&pv, &payload_ntt_poly);
+                        cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(pv, &payload_ntt_poly);
                     });
             });
 
