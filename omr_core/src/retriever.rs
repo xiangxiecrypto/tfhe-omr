@@ -214,7 +214,7 @@ impl<F: NttField> Retriever<F> {
         let q: <F as Field>::ValueT = <F as Field>::MODULUS_VALUE;
         let half: <F as Field>::ValueT = <F as Field>::MODULUS_VALUE >> 1u32;
         let delta: <F as Field>::ValueT = q / 256u16.as_into();
-        let sigma = 246941737217.51f64;
+        let sigma = 427715635370.049f64;
         let one_sigma: <F as Field>::ValueT = sigma.trunc().as_into();
         let two_sigma: <F as Field>::ValueT = (sigma * 2.0).trunc().as_into();
         let three_sigma: <F as Field>::ValueT = (sigma * 3.0).trunc().as_into();
