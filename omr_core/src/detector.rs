@@ -352,7 +352,7 @@ impl Detector {
                                 .iter_mut()
                                 .zip(weighted_payload.0.iter())
                                 .for_each(|(a, &b)| {
-                                    if b <= half_p {
+                                    if b < half_p {
                                         *a = b as <SecondLevelField as Field>::ValueT;
                                     } else {
                                         *a = q - 256 + b as <SecondLevelField as Field>::ValueT;
