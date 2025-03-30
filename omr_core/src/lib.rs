@@ -10,7 +10,7 @@ pub(crate) mod matrix;
 
 mod detector;
 mod key_gen;
-mod retriever;
+pub mod retriever;
 mod sender;
 
 pub use error::OmrError;

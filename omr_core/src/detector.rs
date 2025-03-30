@@ -325,6 +325,9 @@ impl Detector {
 
         rng.fill_bytes(&mut all_weights);
 
+        let q = <SecondLevelField as Field>::MODULUS_VALUE;
+        let half_p = 128;
+
         combinations
             .par_iter_mut()
             .zip(all_weights.par_chunks(cmb_count_per_cipher * payloads_count))
@@ -349,7 +352,11 @@ impl Detector {
                                 .iter_mut()
                                 .zip(weighted_payload.0.iter())
                                 .for_each(|(a, &b)| {
-                                    *a = b as <SecondLevelField as Field>::ValueT;
+                                    if b < half_p {
+                                        *a = b as <SecondLevelField as Field>::ValueT;
+                                    } else {
+                                        *a = q - 256 + b as <SecondLevelField as Field>::ValueT;
+                                    }
                                 });
                         }
 

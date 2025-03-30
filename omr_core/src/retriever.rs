@@ -1,7 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use algebra::{
-    integer::{AsInto, Bits},
+    integer::{AsFrom, AsInto, Bits},
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::FieldNttPolynomial,
     Field, NttField,
@@ -9,7 +9,7 @@ use algebra::{
 use bigdecimal::{BigDecimal, RoundingMode};
 use fhe_core::{NttRlweCiphertext, NttRlweSecretKey};
 use lattice::NttRlwe;
-use num_traits::{ConstZero, FromPrimitive, One, ToPrimitive};
+use num_traits::{ConstZero, FromPrimitive, One, ToPrimitive, Zero};
 use rand::{rngs::StdRng, RngCore, SeedableRng};
 
 use crate::{matrix::solve_matrix_mod_256, OmrError, Payload, RetrievalParams, PAYLOAD_LENGTH};
@@ -128,7 +128,7 @@ impl<F: NttField> Retriever<F> {
 
         let (matrix, combined_payloads) = rayon::join(
             || get_matrix(),
-            || self.decode_combined_payloads(combinations),
+            || self.decode_combined_payloads_with_noise(combinations),
         );
 
         for (row, &cmb) in matrix.iter().zip(combined_payloads.iter()) {
@@ -201,6 +201,164 @@ impl<F: NttField> Retriever<F> {
         let payloads = solve_matrix_mod_256(&mut matrix, &mut combined_payloads)?;
 
         Ok((indices, payloads))
+    }
+
+    pub fn decode_combined_payloads_with_noise(
+        &self,
+        combinations: &[NttRlweCiphertext<F>],
+    ) -> Vec<Payload> {
+        let combination_count = self.params.combination_count();
+        let cmb_count_per_cipher = self.params.cmb_count_per_cipher();
+        let all_count = self.params.combination_count() * 612;
+
+        let q: <F as Field>::ValueT = <F as Field>::MODULUS_VALUE;
+        let half: <F as Field>::ValueT = <F as Field>::MODULUS_VALUE >> 1u32;
+        let delta: <F as Field>::ValueT = q / 256u16.as_into();
+        let sigma = 246941737217.51f64;
+        let one_sigma: <F as Field>::ValueT = sigma.trunc().as_into();
+        let two_sigma: <F as Field>::ValueT = (sigma * 2.0).trunc().as_into();
+        let three_sigma: <F as Field>::ValueT = (sigma * 3.0).trunc().as_into();
+        let four_sigma: <F as Field>::ValueT = (sigma * 4.0).trunc().as_into();
+        let five_sigma: <F as Field>::ValueT = (sigma * 5.0).trunc().as_into();
+        let six_sigma: <F as Field>::ValueT = (sigma * 6.0).trunc().as_into();
+        let mut one_sigma_count = 0usize;
+        let mut two_sigma_count = 0usize;
+        let mut three_sigma_count = 0usize;
+        let mut four_sigma_count = 0usize;
+        let mut five_sigma_count = 0usize;
+        let mut six_sigma_count = 0usize;
+
+        let q_d = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
+        let p = BigDecimal::from_u16(256).unwrap();
+
+        let mut payloads = vec![Payload::new(); combination_count];
+        let mut temp = <FieldNttPolynomial<F>>::zero(self.ntt_table.dimension());
+
+        let (mut sum, mut sq_sum) = (BigDecimal::zero(), BigDecimal::zero());
+
+        payloads
+            .chunks_mut(cmb_count_per_cipher)
+            .zip(combinations.iter())
+            .for_each(
+                |(payload_chunk, cipher): (&mut [Payload], &NttRlweCiphertext<F>)| {
+                    sub_mul(cipher.b(), cipher.a(), &self.key, &mut temp);
+                    self.ntt_table.inverse_transform_slice(temp.as_mut_slice());
+                    payload_chunk
+                        .iter_mut()
+                        .zip(temp.as_slice().chunks_exact(PAYLOAD_LENGTH))
+                        .for_each(|(payload, dec_chunk)| {
+                            payload
+                                .iter_mut()
+                                .zip(dec_chunk.iter())
+                                .for_each(|(byte, &coeff)| {
+                                    let mut t = (BigDecimal::from_u64(coeff.as_into()).unwrap()
+                                        * &p
+                                        / &q_d)
+                                        .with_scale_round(0, RoundingMode::HalfUp);
+                                    if t >= p {
+                                        t -= &p;
+                                    }
+                                    *byte = t.to_u64().unwrap() as u8;
+                                    let value = F::mul(<F as Field>::ValueT::as_from(*byte), delta);
+                                    let x = F::sub(coeff, value);
+
+                                    if x <= half {
+                                        if x <= six_sigma {
+                                            six_sigma_count += 1;
+                                            if x <= five_sigma {
+                                                five_sigma_count += 1;
+                                                if x <= four_sigma {
+                                                    four_sigma_count += 1;
+                                                    if x <= three_sigma {
+                                                        three_sigma_count += 1;
+                                                        if x <= two_sigma {
+                                                            two_sigma_count += 1;
+                                                            if x <= one_sigma {
+                                                                one_sigma_count += 1;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        let x: u64 = x.as_into();
+                                        sum += x;
+                                        sq_sum += BigDecimal::from_u64(x).unwrap().square();
+                                    } else if x < q {
+                                        let t = q - x;
+                                        if t <= six_sigma {
+                                            six_sigma_count += 1;
+                                            if t <= five_sigma {
+                                                five_sigma_count += 1;
+                                                if t <= four_sigma {
+                                                    four_sigma_count += 1;
+                                                    if t <= three_sigma {
+                                                        three_sigma_count += 1;
+                                                        if t <= two_sigma {
+                                                            two_sigma_count += 1;
+                                                            if t <= one_sigma {
+                                                                one_sigma_count += 1;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        let t: u64 = (q - x).as_into();
+                                        sum -= t;
+                                        sq_sum += BigDecimal::from(t).square();
+                                    } else {
+                                        panic!("Err value:{}", x);
+                                    }
+                                });
+                        });
+                },
+            );
+
+        println!("expect standard deviation:{}", sigma);
+        let mean = sum / all_count as u64;
+        println!("real mean:{}", mean);
+        let variance = (sq_sum / all_count as u64) - mean.square();
+        println!("real standard deviation:{}", variance.sqrt().unwrap());
+        println!("one sigma count:{}", one_sigma_count);
+        println!("two sigma count:{}", two_sigma_count);
+        println!("three sigma count:{}", three_sigma_count);
+        println!("four sigma count:{}", four_sigma_count);
+        println!("five sigma count:{}", five_sigma_count);
+        println!("six sigma count:{}", six_sigma_count);
+        println!("all count:{}", all_count);
+        println!(
+            "one sigma ratio:{}",
+            one_sigma_count as f64 / all_count as f64
+        );
+        println!(
+            "two sigma ratio:{}",
+            two_sigma_count as f64 / all_count as f64
+        );
+        println!(
+            "three sigma ratio:{}",
+            three_sigma_count as f64 / all_count as f64
+        );
+        println!(
+            "four sigma ratio:{}",
+            four_sigma_count as f64 / all_count as f64
+        );
+        println!(
+            "five sigma ratio:{}",
+            five_sigma_count as f64 / all_count as f64
+        );
+        println!(
+            "six sigma ratio:{}",
+            six_sigma_count as f64 / all_count as f64
+        );
+        println!(
+            "more than six sigma ratio:{}",
+            1.0 - six_sigma_count as f64 / all_count as f64
+        );
+        println!("----------------------------------");
+
+        payloads
     }
 
     pub fn decode_combined_payloads(&self, combinations: &[NttRlweCiphertext<F>]) -> Vec<Payload> {
