@@ -277,7 +277,11 @@ impl Detector {
                                     let mut k = 0;
                                     while !i.is_zero() {
                                         let v = i & mask;
-                                        chunk[address + k] = if v < half_p { v } else { q - p + v };
+                                        unsafe {
+                                            *chunk.get_unchecked_mut(address + k) =
+                                                if v < half_p { v } else { q - p + v };
+                                        }
+                                        // chunk[address + k] = if v < half_p { v } else { q - p + v };
                                         i >>= shift_bits;
                                         k += 1;
                                     }
@@ -326,9 +330,9 @@ impl Detector {
         let mut combinations =
             vec![NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension); cmb_cipher_count];
 
-        let mut all_weights = vec![0u8; combination_count * payloads_count];
+        let mut all_weights = vec![0u8; cmb_cipher_count * cmb_count_per_cipher * payloads_count];
 
-        rng.fill_bytes(&mut all_weights);
+        rng.fill_bytes(&mut all_weights[..combination_count * payloads_count]);
 
         let q = <SecondLevelField as Field>::MODULUS_VALUE;
         let p = self.detection_key().params().output_plain_modulus_value();
@@ -336,7 +340,7 @@ impl Detector {
 
         combinations
             .par_iter_mut()
-            .zip(all_weights.par_chunks(cmb_count_per_cipher * payloads_count))
+            .zip(all_weights.par_chunks_exact(cmb_count_per_cipher * payloads_count))
             .for_each(|(cmb, weights_chunk)| {
                 let mut payload_ntt_poly =
                     FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
@@ -348,11 +352,14 @@ impl Detector {
                     .for_each(|(i, (pv, payload))| {
                         payload_ntt_poly.set_zero();
 
-                        for (poly_chunk, &weight) in payload_ntt_poly
+                        for (j, poly_chunk) in payload_ntt_poly
                             .as_mut_slice()
                             .chunks_exact_mut(PAYLOAD_LENGTH)
-                            .zip(weights_chunk[i..].iter().step_by(payloads_count))
+                            .take(cmb_count_per_cipher)
+                            .enumerate()
                         {
+                            let weight =
+                                unsafe { *weights_chunk.get_unchecked(j * payloads_count + i) };
                             let weighted_payload = *payload * weight;
                             poly_chunk
                                 .iter_mut()
