@@ -286,7 +286,12 @@ impl Detector {
                                         k += 1;
                                     }
 
-                                    chunk[address + index_slots_per_budget] = ConstOne::ONE;
+                                    unsafe {
+                                        *chunk
+                                            .get_unchecked_mut(address + index_slots_per_budget) =
+                                            ConstOne::ONE;
+                                    }
+                                    // chunk[address + index_slots_per_budget] = ConstOne::ONE;
                                 },
                             );
 
