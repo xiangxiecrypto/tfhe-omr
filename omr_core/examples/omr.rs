@@ -3,19 +3,11 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use algebra::{
-    ntt::{NttTable, NumberTheoryTransform},
-    polynomial::FieldNttPolynomial,
-    utils::Size,
-    Field,
-};
+use algebra::utils::Size;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::NttRlwe;
-use omr_core::{
-    retriever::{self, NoiseSigmaInfo},
-    Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender,
-};
+use omr_core::{Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender};
 use rand::{
     rngs::{StdRng, ThreadRng},
     seq::SliceRandom,
@@ -33,10 +25,10 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
-    let num_threads = 16;
+    let num_threads = 180;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 11;
+    let all_payloads_count = 1 << 16;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -181,37 +173,6 @@ fn omr(
         (end - start) / all_payloads_count as u32
     );
 
-    {
-        let key = secret_key_pack.second_level_ntt_rlwe_secret_key();
-        let ntt_table = secret_key_pack.second_level_ntt_table();
-
-        let q = SecondLevelField::MODULUS_VALUE;
-        let sigma = 152313.66f64;
-        let all_count = ntt_table.dimension() * pertinent.len();
-        let mut noise_sigma_info = <NoiseSigmaInfo<SecondLevelField>>::new(sigma, q, all_count);
-        let delta = q / 256;
-
-        let mut temp = <FieldNttPolynomial<SecondLevelField>>::zero(ntt_table.dimension());
-
-        pertinency_vector
-            .iter()
-            .zip(pertinent.iter())
-            .for_each(|(pv, &flag)| {
-                retriever::sub_mul(pv.b(), pv.a(), key, &mut temp);
-                ntt_table.inverse_transform_slice(temp.as_mut_slice());
-
-                if flag {
-                    SecondLevelField::sub_assign(&mut temp[0], delta);
-                }
-
-                for &x in temp.iter() {
-                    noise_sigma_info.check_noise_sigma(x);
-                }
-            });
-
-        noise_sigma_info.print();
-    }
-
     let mut retriever = secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
     let retrieval_params = retriever.params();
 
@@ -255,7 +216,7 @@ fn omr(
     let mut indices = pertinent_set.iter().copied().collect::<Vec<usize>>();
     indices.sort_unstable();
 
-    retriever.test_combine(&indices, &combinations, &payloads, seed);
+    // retriever.test_combine(&indices, &combinations, &payloads, seed);
 
     let retrieve_start = Instant::now();
     let (indices, solved_payloads) = retriever

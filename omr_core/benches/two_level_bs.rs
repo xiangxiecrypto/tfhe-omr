@@ -59,9 +59,10 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .unwrap_or_else(|| <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension));
 
     // Key switching
-    let intermediate = detection_key
-        .first_level_key_switching_key()
-        .key_switch(&intermediate.extract_lwe_locally(), FirstLevelField::MODULUS);
+    let intermediate = detection_key.first_level_key_switching_key().key_switch(
+        &intermediate.extract_lwe_locally(),
+        FirstLevelField::MODULUS,
+    );
 
     let intermediate_lwe_params = params.intermediate_lwe_params();
     let intermediate_cipher_modulus_value = intermediate_lwe_params.cipher_modulus_value;

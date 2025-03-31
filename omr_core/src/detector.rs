@@ -221,7 +221,7 @@ impl Detector {
         retrieval_params: RetrievalParams<SecondLevelField>,
         pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
     ) -> NttRlwe<SecondLevelField> {
-        const CHUNK_SIZE: usize = 256;
+        const CHUNK_SIZE: usize = 2048;
         let ntt_table = self
             .detection_key
             .second_level_blind_rotation_key()
@@ -323,7 +323,7 @@ impl Detector {
     where
         R: Rng + SeedableRng + CryptoRng,
     {
-        const CHUNK_SIZE: usize = 512;
+        const CHUNK_SIZE: usize = 2048;
 
         let payloads_count = payloads.len();
         let ring_dimension = self.detection_key.params().second_level_ring_dimension();
