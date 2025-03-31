@@ -216,10 +216,10 @@ impl Detector {
         (result, time_info)
     }
 
-    pub fn compress_pertivency_vector(
+    pub fn compress_pertinency_vector(
         &self,
         retrieval_params: RetrievalParams<SecondLevelField>,
-        pertivency_vector: &[NttRlweCiphertext<SecondLevelField>],
+        pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
     ) -> NttRlwe<SecondLevelField> {
         let ntt_table = self
             .detection_key
@@ -242,7 +242,7 @@ impl Detector {
         let p = self.detection_key().params().output_plain_modulus_value();
         let half_p = p >> 1;
 
-        let ciphertext = pertivency_vector
+        let ciphertext = pertinency_vector
             .par_chunks(256)
             .enumerate()
             .map_init(
@@ -304,7 +304,7 @@ impl Detector {
 
     pub fn generate_random_combinations<R>(
         &self,
-        pertivency_vector: &[NttRlweCiphertext<SecondLevelField>],
+        pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
         payloads: &[Payload],
         combination_count: usize,
         cmb_count_per_cipher: usize,
@@ -341,7 +341,7 @@ impl Detector {
                 let mut payload_ntt_poly =
                     FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
 
-                pertivency_vector
+                pertinency_vector
                     .iter()
                     .zip(payloads.iter())
                     .enumerate()

@@ -1,5 +1,5 @@
-// cargo +nightly run --package omr_core --example omr_time_analyse --features="nightly" --release
-// cargo run --package omr_core --example omr_time_analyse --release
+// cargo +nightly run --package omr_core --example omr_time_analyze2 --features="nightly" --release
+// cargo run --package omr_core --example omr_time_analyze2 --release
 
 use std::{
     collections::HashSet,
@@ -23,9 +23,6 @@ struct Record {
     all_payloads_count: usize,
     #[serde(rename = "pertinent count")]
     pertinent_count: usize,
-    #[serde(rename = "detect time")]
-    #[serde(with = "humantime_serde")]
-    detect_time: Duration,
     #[serde(rename = "compress time")]
     #[serde(with = "humantime_serde")]
     compress_time: Duration,
@@ -38,16 +35,15 @@ struct Record {
 }
 
 pub struct Time {
-    detect_time: Duration,
     compress_time: Duration,
     combine_time: Duration,
     retrieve_time: Duration,
 }
 
-const OFFEST: FixedOffset = FixedOffset::east_opt(8 * 60 * 60).unwrap();
+const OFFSET: FixedOffset = FixedOffset::east_opt(8 * 60 * 60).unwrap();
 
 fn main() {
-    let mut wtr = csv::Writer::from_path("benchmark.csv").unwrap();
+    let mut wtr = csv::Writer::from_path("benchmark_compress_and_retrieve.csv").unwrap();
 
     let params = OmrParameters::new();
     let mut rng = rand::thread_rng();
@@ -78,7 +74,13 @@ fn main() {
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
         let clues_list = generate_clues(&sender, &sender2, &pertinent_tag);
-        let payloads_list = geenrate_payloads(all_payloads_count);
+        let payloads_list = generate_payloads(all_payloads_count);
+
+        let time_0 = Instant::now();
+        let pertinency_vector: Vec<NttRlwe<SecondLevelField>> =
+            generate_pertinency_vector(&detector, &clues_list);
+        let time_1 = Instant::now();
+        println!("Detect time: {:?}", time_1 - time_0);
 
         let seed = rng.gen();
 
@@ -86,11 +88,12 @@ fn main() {
             let mut retriever =
                 secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
 
-            println!("Each Start time: {}", Utc::now().with_timezone(&OFFEST));
+            println!("Each Start time: {}", Utc::now().with_timezone(&OFFSET));
+
             let time = pool.install(|| {
-                omr(
+                compress_and_retrieve(
                     &detector,
-                    &clues_list,
+                    &pertinency_vector,
                     &payloads_list,
                     &pertinent_set,
                     &mut retriever,
@@ -102,7 +105,6 @@ fn main() {
                 num_threads: pool.current_num_threads(),
                 all_payloads_count,
                 pertinent_count,
-                detect_time: time.detect_time,
                 compress_time: time.compress_time,
                 combine_time: time.combine_time,
                 retrieve_time: time.retrieve_time,
@@ -163,16 +165,26 @@ fn generate_clues(
         .collect()
 }
 
-fn geenrate_payloads(all_payloads_count: usize) -> Vec<Payload> {
+fn generate_payloads(all_payloads_count: usize) -> Vec<Payload> {
     (0..all_payloads_count)
         .into_par_iter()
         .map_init(|| rand::thread_rng(), |rng, _| Payload::random(rng))
         .collect()
 }
 
-fn omr(
+fn generate_pertinency_vector(
     detector: &Detector,
     clues_list: &[CmLweCiphertext<u16>],
+) -> Vec<NttRlwe<SecondLevelField>> {
+    clues_list
+        .par_iter()
+        .map(|clues| detector.detect(clues))
+        .collect()
+}
+
+fn compress_and_retrieve(
+    detector: &Detector,
+    pertinency_vector: &[NttRlwe<SecondLevelField>],
     payloads_list: &[Payload],
     pertinent_set: &HashSet<usize>,
     retriever: &mut Retriever<SecondLevelField>,
@@ -181,24 +193,17 @@ fn omr(
     let retrieval_params = retriever.params();
     let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
 
-    let time_0 = Instant::now();
-
-    let pertivency_vector: Vec<NttRlwe<SecondLevelField>> = clues_list
-        .par_iter()
-        .map(|clues| detector.detect(clues))
-        .collect();
-
     let time_1 = Instant::now();
 
     let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
         .into_par_iter()
-        .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
+        .map(|_| detector.compress_pertinency_vector(retrieval_params, &pertinency_vector))
         .collect();
 
     let time_2 = Instant::now();
 
     let combinations = detector.generate_random_combinations(
-        &pertivency_vector,
+        pertinency_vector,
         payloads_list,
         retrieval_params.combination_count(),
         retrieval_params.cmb_count_per_cipher(),
@@ -232,7 +237,6 @@ fn omr(
     }
 
     Time {
-        detect_time: time_1 - time_0,
         compress_time: time_2 - time_1,
         combine_time: time_3 - time_2,
         retrieve_time: time_4 - time_3,

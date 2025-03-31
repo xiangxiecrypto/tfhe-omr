@@ -1,10 +1,24 @@
 {
     "cSpell.words": [
+        "bigdecimal",
+        "chrono",
         "Ciphertext",
+        "coeff",
+        "gcdinv",
         "Homomorphic",
+        "humantime",
+        "indicatif",
         "inplace",
+        "itertools",
         "negacyclic",
         "Rlwe",
-        "shoup"
+        "rngs",
+        "Seedable",
+        "serde",
+        "shoup",
+        "tfhe",
+        "thiserror",
+        "trunc",
+        "Xgcd"
     ]
 }

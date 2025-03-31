@@ -9,13 +9,12 @@ use algebra::{
     utils::Size,
     Field,
 };
-use bigdecimal::BigDecimal;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::NttRlwe;
-use num_traits::Zero;
 use omr_core::{
-    retriever, Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender,
+    retriever::{self, NoiseSigmaInfo},
+    Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender,
 };
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -34,10 +33,10 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
-    let num_threads = 180;
+    let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 16;
+    let all_payloads_count = 1 << 11;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -168,7 +167,7 @@ fn omr(
 
     debug!("Detecting...");
     let start = Instant::now();
-    let pertivency_vector: Vec<NttRlwe<SecondLevelField>> = clues_list
+    let pertinency_vector: Vec<NttRlwe<SecondLevelField>> = clues_list
         .par_iter()
         .progress_with(pb.clone())
         .map(|clues| detector.detect(clues))
@@ -183,133 +182,34 @@ fn omr(
     );
 
     {
-        println!("----------------------------------");
-        let q = SecondLevelField::MODULUS_VALUE;
-        let half = SecondLevelField::MODULUS_VALUE >> 1;
-        let delta = q / 256;
-        let sigma = 152313.66f64;
-        let one_sigma = sigma.trunc() as u64;
-        let two_sigma = (sigma * 2.0).trunc() as u64;
-        let three_sigma = (sigma * 3.0).trunc() as u64;
-        let four_sigma = (sigma * 4.0).trunc() as u64;
-        let five_sigma = (sigma * 5.0).trunc() as u64;
-        let six_sigma = (sigma * 6.0).trunc() as u64;
-        let mut one_sigma_count = 0usize;
-        let mut two_sigma_count = 0usize;
-        let mut three_sigma_count = 0usize;
-        let mut four_sigma_count = 0usize;
-        let mut five_sigma_count = 0usize;
-        let mut six_sigma_count = 0usize;
-
         let key = secret_key_pack.second_level_ntt_rlwe_secret_key();
         let ntt_table = secret_key_pack.second_level_ntt_table();
+
+        let q = SecondLevelField::MODULUS_VALUE;
+        let sigma = 152313.66f64;
+        let all_count = ntt_table.dimension() * pertinent.len();
+        let mut noise_sigma_info = <NoiseSigmaInfo<SecondLevelField>>::new(sigma, q, all_count);
+        let delta = q / 256;
+
         let mut temp = <FieldNttPolynomial<SecondLevelField>>::zero(ntt_table.dimension());
 
-        let all_count = ntt_table.dimension() * pertinent.len();
-
-        let (sum, sq_sum) = pertivency_vector.iter().zip(pertinent.iter()).fold(
-            (BigDecimal::zero(), BigDecimal::zero()),
-            |(mut sum, mut sq_sum), (pv, &flag)| {
+        pertinency_vector
+            .iter()
+            .zip(pertinent.iter())
+            .for_each(|(pv, &flag)| {
                 retriever::sub_mul(pv.b(), pv.a(), key, &mut temp);
                 ntt_table.inverse_transform_slice(temp.as_mut_slice());
 
                 if flag {
-                    temp[0] = SecondLevelField::sub(temp[0], delta);
+                    SecondLevelField::sub_assign(&mut temp[0], delta);
                 }
 
                 for &x in temp.iter() {
-                    if x <= half {
-                        if x <= six_sigma {
-                            six_sigma_count += 1;
-                            if x <= five_sigma {
-                                five_sigma_count += 1;
-                                if x <= four_sigma {
-                                    four_sigma_count += 1;
-                                    if x <= three_sigma {
-                                        three_sigma_count += 1;
-                                        if x <= two_sigma {
-                                            two_sigma_count += 1;
-                                            if x <= one_sigma {
-                                                one_sigma_count += 1;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        sum += x;
-                        sq_sum += BigDecimal::from(x).square();
-                    } else if x < q {
-                        let t = q - x;
-                        if t <= six_sigma {
-                            six_sigma_count += 1;
-                            if t <= five_sigma {
-                                five_sigma_count += 1;
-                                if t <= four_sigma {
-                                    four_sigma_count += 1;
-                                    if t <= three_sigma {
-                                        three_sigma_count += 1;
-                                        if t <= two_sigma {
-                                            two_sigma_count += 1;
-                                            if t <= one_sigma {
-                                                one_sigma_count += 1;
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        sum -= q - x;
-                        sq_sum += BigDecimal::from(q - x).square();
-                    } else {
-                        panic!("Err value:{}", x);
-                    }
+                    noise_sigma_info.check_noise_sigma(x);
                 }
-                (sum, sq_sum)
-            },
-        );
+            });
 
-        let mean = sum / all_count as u64;
-        let variance = (sq_sum / all_count as u64) - mean.square();
-        println!("expect standard deviation:{}", sigma);
-        println!("real standard deviation:{}", variance.sqrt().unwrap());
-        println!("real mean:{}", mean);
-        println!("one sigma count:{}", one_sigma_count);
-        println!("two sigma count:{}", two_sigma_count);
-        println!("three sigma count:{}", three_sigma_count);
-        println!("four sigma count:{}", four_sigma_count);
-        println!("five sigma count:{}", five_sigma_count);
-        println!("six sigma count:{}", six_sigma_count);
-        println!("all count:{}", all_count);
-        println!(
-            "one sigma ratio:{}",
-            one_sigma_count as f64 / all_count as f64
-        );
-        println!(
-            "two sigma ratio:{}",
-            two_sigma_count as f64 / all_count as f64
-        );
-        println!(
-            "three sigma ratio:{}",
-            three_sigma_count as f64 / all_count as f64
-        );
-        println!(
-            "four sigma ratio:{}",
-            four_sigma_count as f64 / all_count as f64
-        );
-        println!(
-            "five sigma ratio:{}",
-            five_sigma_count as f64 / all_count as f64
-        );
-        println!(
-            "six sigma ratio:{}",
-            six_sigma_count as f64 / all_count as f64
-        );
-        println!(
-            "more than six sigma ratio:{}",
-            1.0 - six_sigma_count as f64 / all_count as f64
-        );
-        println!("----------------------------------");
+        noise_sigma_info.print();
     }
 
     let mut retriever = secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
@@ -320,7 +220,7 @@ fn omr(
     let compress_start = Instant::now();
     let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
         .into_par_iter()
-        .map(|_| detector.compress_pertivency_vector(retrieval_params, &pertivency_vector))
+        .map(|_| detector.compress_pertinency_vector(retrieval_params, &pertinency_vector))
         .collect();
     let compress_end = Instant::now();
     info!("compress times: {:?}", compress_end - compress_start);
@@ -338,7 +238,7 @@ fn omr(
 
     let combine_start = Instant::now();
     let combinations = detector.generate_random_combinations(
-        &pertivency_vector,
+        &pertinency_vector,
         &payloads,
         retrieval_params.combination_count(),
         retrieval_params.cmb_count_per_cipher(),
