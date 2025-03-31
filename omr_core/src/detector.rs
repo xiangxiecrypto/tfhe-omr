@@ -221,6 +221,7 @@ impl Detector {
         retrieval_params: RetrievalParams<SecondLevelField>,
         pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
     ) -> NttRlwe<SecondLevelField> {
+        const CHUNK_SIZE: usize = 256;
         let ntt_table = self
             .detection_key
             .second_level_blind_rotation_key()
@@ -243,7 +244,7 @@ impl Detector {
         let half_p = p >> 1;
 
         let ciphertext = pertinency_vector
-            .par_chunks(256)
+            .par_chunks(CHUNK_SIZE)
             .enumerate()
             .map_init(
                 || {
@@ -258,7 +259,7 @@ impl Detector {
                         NttRlwe::zero(polynomial_size);
 
                     chunk.iter().enumerate().for_each(|(j, detect)| {
-                        let i = 256 * chunk_i + j;
+                        let i = CHUNK_SIZE * chunk_i + j;
 
                         poly.set_zero();
 
@@ -322,64 +323,80 @@ impl Detector {
     where
         R: Rng + SeedableRng + CryptoRng,
     {
-        let payloads_count = payloads.len();
+        const CHUNK_SIZE: usize = 512;
 
+        let payloads_count = payloads.len();
         let ring_dimension = self.detection_key.params().second_level_ring_dimension();
         let cmb_cipher_count = combination_count.div_ceil(cmb_count_per_cipher);
+        let q = <SecondLevelField as Field>::MODULUS_VALUE;
+        let p = self.detection_key().params().output_plain_modulus_value();
+        let half_p = p >> 1;
 
         let ntt_table = self
             .detection_key
             .second_level_blind_rotation_key()
             .ntt_table();
 
-        let mut combinations =
-            vec![NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension); cmb_cipher_count];
-
         let mut all_weights = vec![0u8; cmb_cipher_count * cmb_count_per_cipher * payloads_count];
 
         rng.fill_bytes(&mut all_weights[..combination_count * payloads_count]);
 
-        let q = <SecondLevelField as Field>::MODULUS_VALUE;
-        let p = self.detection_key().params().output_plain_modulus_value();
-        let half_p = p >> 1;
-
-        combinations
-            .par_iter_mut()
-            .zip(all_weights.par_chunks_exact(cmb_count_per_cipher * payloads_count))
-            .for_each(|(cmb, weights_chunk)| {
-                let mut payload_ntt_poly =
-                    FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension);
-
+        let combinations = all_weights
+            .par_chunks_exact(cmb_count_per_cipher * payloads_count)
+            .map(|weights_chunk| {
                 pertinency_vector
-                    .iter()
-                    .zip(payloads.iter())
+                    .par_chunks(CHUNK_SIZE)
+                    .zip(payloads.par_chunks(CHUNK_SIZE))
                     .enumerate()
-                    .for_each(|(i, (pv, payload))| {
-                        payload_ntt_poly.set_zero();
+                    .map_init(
+                        || FieldNttPolynomial::<SecondLevelField>::zero(ring_dimension),
+                        |payload_ntt_poly, (chunk_i, (pv_chunk, payload_chunk))| {
+                            let mut temp_cmb =
+                                NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension);
 
-                        for (j, poly_chunk) in payload_ntt_poly
-                            .as_mut_slice()
-                            .chunks_exact_mut(PAYLOAD_LENGTH)
-                            .take(cmb_count_per_cipher)
-                            .enumerate()
-                        {
-                            let weight =
-                                unsafe { *weights_chunk.get_unchecked(j * payloads_count + i) };
-                            let weighted_payload = *payload * weight;
-                            poly_chunk
-                                .iter_mut()
-                                .zip(weighted_payload.0.iter())
-                                .for_each(|(a, &b)| {
-                                    let b = b as <SecondLevelField as Field>::ValueT;
-                                    *a = if b < half_p { b } else { q - p + b };
+                            pv_chunk
+                                .iter()
+                                .zip(payload_chunk.iter())
+                                .enumerate()
+                                .for_each(|(chunk_j, (pv, payload))| {
+                                    let i = CHUNK_SIZE * chunk_i + chunk_j;
+                                    payload_ntt_poly.set_zero();
+
+                                    for (j, poly_chunk) in payload_ntt_poly
+                                        .as_mut_slice()
+                                        .chunks_exact_mut(PAYLOAD_LENGTH)
+                                        .take(cmb_count_per_cipher)
+                                        .enumerate()
+                                    {
+                                        let weight = unsafe {
+                                            *weights_chunk.get_unchecked(j * payloads_count + i)
+                                        };
+                                        let weighted_payload = *payload * weight;
+                                        poly_chunk
+                                            .iter_mut()
+                                            .zip(weighted_payload.0.iter())
+                                            .for_each(|(a, &b)| {
+                                                let b = b as <SecondLevelField as Field>::ValueT;
+                                                *a = if b < half_p { b } else { q - p + b };
+                                            });
+                                    }
+
+                                    ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
+
+                                    temp_cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(
+                                        pv,
+                                        &payload_ntt_poly,
+                                    );
                                 });
-                        }
-
-                        ntt_table.transform_slice(payload_ntt_poly.as_mut_slice());
-
-                        cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(pv, &payload_ntt_poly);
-                    });
-            });
+                            temp_cmb
+                        },
+                    )
+                    .reduce(
+                        || NttRlweCiphertext::<SecondLevelField>::zero(ring_dimension),
+                        |acc, x| acc.add_element_wise(&x),
+                    )
+            })
+            .collect();
 
         combinations
     }
