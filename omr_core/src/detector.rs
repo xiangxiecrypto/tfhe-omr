@@ -385,7 +385,7 @@ impl Detector {
 
                                     temp_cmb.add_ntt_rlwe_mul_ntt_polynomial_assign(
                                         pv,
-                                        &payload_ntt_poly,
+                                        payload_ntt_poly,
                                     );
                                 });
                             temp_cmb

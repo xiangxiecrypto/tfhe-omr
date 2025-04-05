@@ -1,8 +1,9 @@
 // cargo +nightly bench --package omr_core2 --bench two_level_bs --features="nightly"
+// cargo bench --package omr_core2 --bench two_level_bs
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tfhe::core_crypto::prelude::{
-    keyswitch_lwe_ciphertext, CiphertextModulus, LweCiphertextMutView,
+    encrypt_lwe_ciphertext, keyswitch_lwe_ciphertext, CiphertextModulus, LweCiphertextMutView,
 };
 
 pub fn criterion_benchmark(c: &mut Criterion) {
@@ -23,11 +24,18 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             b.iter(|| sks.nand(black_box(&ct1), black_box(&ct2)));
         });
 
+        // let (lwe_secret_key, glwe_secret_key, parameters) = cks.into_raw_parts();
+
+        // let glwe_as_lwe_sk = glwe_secret_key.as_lwe_secret_key();
+        let lwe_dimension = LweDimension(1024).to_lwe_size().0;
+
+        let mut data = vec![0u32; lwe_dimension];
+        data.fill(5);
+
+        let data_view =
+            LweCiphertextMutView::from_container(&mut data, CiphertextModulus::new_native());
+
         let (_bootstrapping_key, key_switching_key, _pbs_order) = sks.into_raw_parts();
-        let ct = match ct1 {
-            Ciphertext::Encrypted(ct) => ct,
-            Ciphertext::Trivial(_) => panic!("ct1 is not a ciphertext"),
-        };
 
         let mut buffer = vec![0u32; key_switching_key.output_key_lwe_dimension().to_lwe_size().0];
 
@@ -38,12 +46,13 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             b.iter(|| {
                 keyswitch_lwe_ciphertext(
                     black_box(&key_switching_key),
-                    black_box(&ct),
+                    black_box(&data_view),
                     black_box(&mut buffer_lwe_after_ks),
                 )
             });
         });
     }
+
     {
         use tfhe::shortint::parameters::v1_0::V1_0_PARAM_MESSAGE_4_CARRY_0_KS_PBS_GAUSSIAN_2M128;
         use tfhe::shortint::prelude::*;

@@ -1,4 +1,5 @@
 // cargo +nightly bench --package omr_core --bench two_level_bs --features="nightly"
+// cargo bench --package omr_core --bench two_level_bs
 
 use algebra::{
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
@@ -57,6 +58,19 @@ pub fn criterion_benchmark(c: &mut Criterion) {
         .map(|c| first_level_blind_rotation_key.blind_rotate(detector.first_level_lut().clone(), c))
         .reduce(|acc, ele| acc.add_element_wise(&ele))
         .unwrap_or_else(|| <RlweCiphertext<FirstLevelField>>::zero(first_level_ring_dimension));
+
+    c.bench_function("key switch", |b| {
+        b.iter_batched(
+            || intermediate.clone(),
+            |intermediate| {
+                detection_key.first_level_key_switching_key().key_switch(
+                    &intermediate.extract_lwe_locally(),
+                    FirstLevelField::MODULUS,
+                )
+            },
+            BatchSize::SmallInput,
+        );
+    });
 
     // Key switching
     let intermediate = detection_key.first_level_key_switching_key().key_switch(
