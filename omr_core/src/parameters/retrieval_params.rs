@@ -64,7 +64,10 @@ impl<F: NttField> RetrievalParams<F> {
             if index_modulus.pow(pow) < all_payloads_count {
                 pow += 1;
             }
-            assert!(index_modulus.pow(pow) > all_payloads_count);
+            if pow == 0 {
+                pow = 1;
+            }
+            assert!(index_modulus.pow(pow) >= all_payloads_count);
             pow as usize
         };
 

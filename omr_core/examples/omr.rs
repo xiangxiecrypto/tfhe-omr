@@ -3,6 +3,7 @@
 
 use std::{collections::HashSet, time::Instant};
 
+use clap::Parser;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::NttRlwe;
@@ -16,6 +17,16 @@ use rayon::prelude::*;
 use tracing::{debug, info, Level};
 use tracing_subscriber::fmt::format::FmtSpan;
 
+#[derive(Parser)]
+struct Args {
+    /// thread count
+    #[arg(short = 't')]
+    thread_count: Option<usize>,
+    // payload count
+    #[arg(short = 'p')]
+    payload_count: Option<usize>,
+}
+
 fn main() {
     tracing_subscriber::fmt()
         .compact()
@@ -24,11 +35,30 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
-    let num_threads = 16;
-    println!("num_threads: {}", num_threads);
+    let args = Args::parse();
 
-    let all_payloads_count = 1 << 5;
-    println!("all_payloads_count: {}", all_payloads_count);
+    let thread_count = args.thread_count;
+
+    let payload_count = args.payload_count;
+
+    let max_cpu_cores = num_cpus::get();
+    let num_threads = if let Some(thread_count) = thread_count {
+        if thread_count > max_cpu_cores {
+            max_cpu_cores
+        } else {
+            thread_count
+        }
+    } else {
+        max_cpu_cores
+    };
+    println!("num threads: {}", num_threads);
+
+    let all_payloads_count = if let Some(payload_count) = payload_count {
+        payload_count
+    } else {
+        num_threads * 8
+    };
+    println!("all payloads count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
         .num_threads(num_threads)
