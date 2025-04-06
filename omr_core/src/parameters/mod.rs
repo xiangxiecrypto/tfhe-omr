@@ -86,7 +86,8 @@ impl OmrParameters {
             basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 2, None),
         };
 
-        let output_plain_modulus_value = 1 << 8;
+        // let output_plain_modulus_value = 1 << 8;
+        let output_plain_modulus_value = (1 << 8) + 1;
 
         Self {
             clue_params,

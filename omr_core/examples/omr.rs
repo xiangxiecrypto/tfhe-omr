@@ -3,7 +3,6 @@
 
 use std::{collections::HashSet, time::Instant};
 
-use algebra::utils::Size;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::NttRlwe;
@@ -25,10 +24,10 @@ fn main() {
         .with_max_level(Level::DEBUG)
         .init();
 
-    let num_threads = 180;
+    let num_threads = 16;
     println!("num_threads: {}", num_threads);
 
-    let all_payloads_count = 1 << 16;
+    let all_payloads_count = 1 << 5;
     println!("all_payloads_count: {}", all_payloads_count);
 
     rayon::ThreadPoolBuilder::new()
@@ -43,43 +42,11 @@ fn main() {
     let secret_key_pack = KeyGen::generate_secret_key(params.clone(), &mut rng);
     let secret_key_pack2 = KeyGen::generate_secret_key(params.clone(), &mut rng);
 
-    println!("secret key size: {} bytes", secret_key_pack.size());
-    println!("z2 key size: {} bytes", secret_key_pack.z2_size());
-
     debug!("Generating sender and detector...");
     let sender = secret_key_pack.generate_sender(&mut rng);
     let sender2 = secret_key_pack2.generate_sender(&mut rng);
 
-    println!("clue key size: {} bytes", sender.clue_key_size());
-
     let detector = secret_key_pack.generate_detector(&mut rng);
-
-    println!("detect key size: {} bytes", detector.detect_key_size());
-    println!(
-        "first level bootstrapping key size: {} bytes",
-        detector
-            .detection_key()
-            .first_level_blind_rotation_key()
-            .size()
-    );
-    println!(
-        "first level key switching key size: {} bytes",
-        detector
-            .detection_key()
-            .first_level_key_switching_key()
-            .size()
-    );
-    println!(
-        "second level bootstrapping key size: {} bytes",
-        detector
-            .detection_key()
-            .second_level_blind_rotation_key()
-            .size()
-    );
-    println!(
-        "trace key size: {} bytes",
-        detector.detection_key().trace_key().size()
-    );
 
     omr(
         all_payloads_count,
@@ -176,29 +143,27 @@ fn omr(
     let mut retriever = secret_key_pack.generate_retriever(all_payloads_count, pertinent_count);
     let retrieval_params = retriever.params();
 
-    let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
+    let max_encode_indices_cipher_count = retrieval_params.max_encode_indices_cipher_count();
 
-    let compress_start = Instant::now();
-    let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
+    let encode_indices_start = Instant::now();
+    let encode_pertinent_indices: Vec<_> = (0..max_encode_indices_cipher_count)
         .into_par_iter()
-        .map(|_| detector.compress_pertinency_vector(retrieval_params, &pertinency_vector))
+        .map(|_| detector.encode_pertinent_indices(retrieval_params, &pertinency_vector))
         .collect();
-    let compress_end = Instant::now();
-    info!("compress times: {:?}", compress_end - compress_start);
+    let encode_indices_end = Instant::now();
     info!(
-        "compress times per ciphertext: {:?}",
-        (compress_end - compress_start) / max_retrieve_cipher_count as u32
+        "encode indices times: {:?}",
+        encode_indices_end - encode_indices_start
     );
-
-    println!(
-        "compress_indices size {} bytes",
-        compress_indices.iter().map(|c| c.size()).sum::<usize>()
+    info!(
+        "encode indices times per ciphertext: {:?}",
+        (encode_indices_end - encode_indices_start) / max_encode_indices_cipher_count as u32
     );
 
     let seed = rng.gen();
 
     let combine_start = Instant::now();
-    let combinations = detector.generate_random_combinations(
+    let encode_pertinent_payloads = detector.encode_pertinent_payloads(
         &pertinency_vector,
         &payloads,
         retrieval_params.combination_count(),
@@ -206,11 +171,9 @@ fn omr(
         &mut StdRng::from_seed(seed),
     );
     let combine_end = Instant::now();
-    info!("combine time: {:?}", combine_end - combine_start);
-
-    println!(
-        "combinations size {} bytes",
-        combinations.iter().map(|c| c.size()).sum::<usize>()
+    info!(
+        "encode pertinent payloads time: {:?}",
+        combine_end - combine_start
     );
 
     let mut indices = pertinent_set.iter().copied().collect::<Vec<usize>>();
@@ -220,10 +183,10 @@ fn omr(
 
     let retrieve_start = Instant::now();
     let (indices, solved_payloads) = retriever
-        .retrieve(&compress_indices, &combinations, seed)
+        .decode_digest(&encode_pertinent_indices, &encode_pertinent_payloads, seed)
         .unwrap();
     let retrieve_end = Instant::now();
-    info!("retrieve time: {:?}", retrieve_end - retrieve_start);
+    info!("decode time: {:?}", retrieve_end - retrieve_start);
 
     for (&i, p) in indices.iter().zip(solved_payloads.iter()) {
         if payloads[i] != *p {

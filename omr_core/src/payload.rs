@@ -1,12 +1,12 @@
-use std::ops::{Add, AddAssign, Mul, MulAssign, Sub, SubAssign};
-
+use algebra::reduce::RingReduce;
 use itertools::izip;
 use rand::RngCore;
 
 pub const PAYLOAD_LENGTH: usize = 612;
+pub type PayloadByteType = u16;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Payload(pub [u8; PAYLOAD_LENGTH]);
+pub struct Payload(pub [PayloadByteType; PAYLOAD_LENGTH]);
 
 impl Payload {
     /// Creates a new [`Payload`].
@@ -22,109 +22,77 @@ impl Payload {
         R: RngCore,
     {
         let mut payload = Self::new();
-        rng.fill_bytes(&mut payload.0);
+        let mut temp = [0u8; PAYLOAD_LENGTH];
+        rng.fill_bytes(&mut temp);
+        payload
+            .iter_mut()
+            .zip(temp.iter())
+            .for_each(|(p, &b)| *p = PayloadByteType::from(b));
         payload
     }
 
     /// Returns an iterator over the payload.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = &u8> {
+    pub fn iter(&self) -> impl Iterator<Item = &PayloadByteType> {
         self.0.iter()
     }
 
     /// Returns a mutable iterator over the payload.
     #[inline]
-    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut u8> {
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = &mut PayloadByteType> {
         self.0.iter_mut()
     }
-}
 
-impl AddAssign<Self> for Payload {
     #[inline]
-    fn add_assign(&mut self, rhs: Self) {
+    pub fn add<M: RingReduce<PayloadByteType>>(mut self, rhs: &Self, modulus: M) -> Self {
         for (r, &b) in izip!(self.0.iter_mut(), rhs.0.iter()) {
-            *r = r.wrapping_add(b);
+            modulus.reduce_add_assign(r, b);
         }
+        self
     }
-}
-
-impl Add<Self> for Payload {
-    type Output = Self;
 
     #[inline]
-    fn add(self, rhs: Self) -> Self {
-        let mut result = Self::new();
-        for (r, &a, &b) in izip!(result.0.iter_mut(), self.0.iter(), rhs.0.iter()) {
-            *r = a.wrapping_add(b);
-        }
-        result
-    }
-}
-
-impl Add<&Self> for Payload {
-    type Output = Self;
-
-    #[inline]
-    fn add(self, rhs: &Self) -> Self::Output {
-        let mut result = Self::new();
-        for (r, &a, &b) in izip!(result.0.iter_mut(), self.0.iter(), rhs.0.iter()) {
-            *r = a.wrapping_add(b);
-        }
-        result
-    }
-}
-
-impl SubAssign<Self> for Payload {
-    #[inline]
-    fn sub_assign(&mut self, rhs: Self) {
+    pub fn add_assign<M: RingReduce<PayloadByteType>>(&mut self, rhs: &Self, modulus: M) {
         for (r, &b) in izip!(self.0.iter_mut(), rhs.0.iter()) {
-            *r = r.wrapping_sub(b);
+            modulus.reduce_add_assign(r, b);
         }
     }
-}
-
-impl Sub<Self> for Payload {
-    type Output = Self;
 
     #[inline]
-    fn sub(self, rhs: Self) -> Self::Output {
-        let mut result = Self::new();
-        for (r, &a, &b) in izip!(result.0.iter_mut(), self.0.iter(), rhs.0.iter()) {
-            *r = a.wrapping_sub(b);
+    pub fn sub<M: RingReduce<PayloadByteType>>(mut self, rhs: &Self, modulus: M) -> Self {
+        for (r, &b) in izip!(self.0.iter_mut(), rhs.0.iter()) {
+            modulus.reduce_sub_assign(r, b);
         }
-        result
+        self
     }
-}
-
-impl Sub<&Self> for Payload {
-    type Output = Self;
 
     #[inline]
-    fn sub(self, rhs: &Self) -> Self::Output {
-        let mut result = Self::new();
-        for (r, &a, &b) in izip!(result.0.iter_mut(), self.0.iter(), rhs.0.iter()) {
-            *r = a.wrapping_sub(b);
+    pub fn sub_assign<M: RingReduce<PayloadByteType>>(&mut self, rhs: &Self, modulus: M) {
+        for (r, &b) in izip!(self.0.iter_mut(), rhs.0.iter()) {
+            modulus.reduce_sub_assign(r, b);
         }
-        result
     }
-}
 
-impl Mul<u8> for Payload {
-    type Output = Self;
-
-    fn mul(self, scaler: u8) -> Self::Output {
-        let mut result = Self::new();
-        for (r, &a) in izip!(result.0.iter_mut(), self.0.iter()) {
-            *r = a.wrapping_mul(scaler);
-        }
-        result
-    }
-}
-
-impl MulAssign<u8> for Payload {
-    fn mul_assign(&mut self, scaler: u8) {
+    #[inline]
+    pub fn mul_scalar<M: RingReduce<PayloadByteType>>(
+        mut self,
+        scaler: PayloadByteType,
+        modulus: M,
+    ) -> Self {
         for r in self.0.iter_mut() {
-            *r = r.wrapping_mul(scaler);
+            modulus.reduce_mul_assign(r, scaler);
+        }
+        self
+    }
+
+    #[inline]
+    pub fn mul_scalar_assign<M: RingReduce<PayloadByteType>>(
+        &mut self,
+        scaler: PayloadByteType,
+        modulus: M,
+    ) {
+        for r in self.0.iter_mut() {
+            modulus.reduce_mul_assign(r, scaler);
         }
     }
 }

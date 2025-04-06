@@ -3,13 +3,15 @@ use std::{
     time::{Duration, Instant},
 };
 
-use num_traits::{ConstOne, Zero};
+use bigdecimal::{BigDecimal, RoundingMode};
+use num_traits::{ConstOne, FromPrimitive, ToPrimitive, Zero};
 use rand::prelude::*;
+use rand_distr::Uniform;
 use rayon::prelude::*;
 
 use algebra::{
     integer::{AsFrom, AsInto},
-    modulus::ShoupFactor,
+    modulus::{BarrettModulus, PowOf2Modulus, ShoupFactor},
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::{FieldNttPolynomial, FieldPolynomial},
     reduce::{ModulusValue, Reduce, ReduceAddAssign},
@@ -23,8 +25,8 @@ use fhe_core::{
 use lattice::NttRlwe;
 
 use crate::{
-    ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable, OmrParameters, Payload,
-    RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
+    payload::PayloadByteType, ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable,
+    OmrParameters, Payload, RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
 };
 
 /// The detector for OMR.
@@ -216,7 +218,7 @@ impl Detector {
         (result, time_info)
     }
 
-    pub fn compress_pertinency_vector(
+    pub fn encode_pertinent_indices(
         &self,
         retrieval_params: RetrievalParams<SecondLevelField>,
         pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
@@ -229,19 +231,23 @@ impl Detector {
         let polynomial_size = retrieval_params.polynomial_size();
         assert_eq!(polynomial_size, ntt_table.dimension());
 
-        let slots_per_budget = retrieval_params.slots_per_budget();
-        let slots_per_retrieval = retrieval_params.slots_per_retrieval();
-        let budget_distr = retrieval_params.budget_distr();
+        let slots_per_bucket = retrieval_params.slots_per_bucket();
+        let slots_per_segment = retrieval_params.slots_per_segment();
+        let bucket_distr = retrieval_params.bucket_distr();
 
-        let index_slots_per_budget = slots_per_budget - 1;
+        let index_slots_per_bucket = slots_per_bucket - 1;
         let index_modulus = retrieval_params.index_modulus();
+
+        let is_power_of_two = index_modulus.is_power_of_two();
 
         let mask = index_modulus - 1;
         let shift_bits = index_modulus.trailing_zeros();
 
+        let modulus = <BarrettModulus<u64>>::new(index_modulus);
+
         let q = <SecondLevelField as Field>::MODULUS_VALUE;
         let p = self.detection_key().params().output_plain_modulus_value();
-        let half_p = p >> 1;
+        let half_p = (p + 1) >> 1;
 
         let ciphertext = pertinency_vector
             .par_chunks(CHUNK_SIZE)
@@ -264,32 +270,48 @@ impl Detector {
                         poly.set_zero();
 
                         poly.as_mut_slice()
-                            .chunks_exact_mut(slots_per_retrieval)
-                            .zip(budget_distr.sample_iter(&mut *rng))
+                            .chunks_exact_mut(slots_per_segment)
+                            .zip(bucket_distr.sample_iter(&mut *rng))
                             .for_each(
-                                |(chunk, budget_index): (
+                                |(chunk, bucket_index): (
                                     &mut [<SecondLevelField as Field>::ValueT],
                                     usize,
                                 )| {
                                     let mut i: <SecondLevelField as Field>::ValueT =
                                         AsFrom::as_from(i);
-                                    let address = budget_index * slots_per_budget;
+                                    let address = bucket_index * slots_per_bucket;
 
                                     let mut k = 0;
-                                    while !i.is_zero() {
-                                        let v = i & mask;
-                                        unsafe {
-                                            *chunk.get_unchecked_mut(address + k) =
-                                                if v < half_p { v } else { q - p + v };
+                                    if is_power_of_two {
+                                        while !i.is_zero() {
+                                            let v = i & mask;
+                                            unsafe {
+                                                *chunk.get_unchecked_mut(address + k) =
+                                                    if v < half_p { v } else { q - p + v };
+                                            }
+                                            // chunk[address + k] = if v < half_p { v } else { q - p + v };
+                                            i >>= shift_bits;
+                                            k += 1;
                                         }
-                                        // chunk[address + k] = if v < half_p { v } else { q - p + v };
-                                        i >>= shift_bits;
-                                        k += 1;
+                                    } else {
+                                        while !i.is_zero() {
+                                            let v = if i < index_modulus {
+                                                i
+                                            } else {
+                                                modulus.reduce(i)
+                                            };
+                                            unsafe {
+                                                *chunk.get_unchecked_mut(address + k) =
+                                                    if v < half_p { v } else { q - p + v };
+                                            }
+                                            i = (i - v) / index_modulus;
+                                            k += 1;
+                                        }
                                     }
 
                                     unsafe {
                                         *chunk
-                                            .get_unchecked_mut(address + index_slots_per_budget) =
+                                            .get_unchecked_mut(address + index_slots_per_bucket) =
                                             ConstOne::ONE;
                                     }
                                     // chunk[address + index_slots_per_budget] = ConstOne::ONE;
@@ -312,7 +334,7 @@ impl Detector {
         ciphertext
     }
 
-    pub fn generate_random_combinations<R>(
+    pub fn encode_pertinent_payloads<R>(
         &self,
         pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
         payloads: &[Payload],
@@ -330,16 +352,35 @@ impl Detector {
         let cmb_cipher_count = combination_count.div_ceil(cmb_count_per_cipher);
         let q = <SecondLevelField as Field>::MODULUS_VALUE;
         let p = self.detection_key().params().output_plain_modulus_value();
-        let half_p = p >> 1;
+        let is_power_of_two = p.is_power_of_two();
+        let half_p = (p + 1) >> 1;
+
+        let powof2_modulus = if is_power_of_two {
+            <PowOf2Modulus<PayloadByteType>>::new(p as PayloadByteType)
+        } else {
+            <PowOf2Modulus<PayloadByteType>>::new(2)
+        };
+        let barrett_modulus = <BarrettModulus<PayloadByteType>>::new(p as PayloadByteType);
 
         let ntt_table = self
             .detection_key
             .second_level_blind_rotation_key()
             .ntt_table();
 
-        let mut all_weights = vec![0u8; cmb_cipher_count * cmb_count_per_cipher * payloads_count];
+        let mut all_weights: Vec<PayloadByteType> =
+            vec![0; cmb_cipher_count * cmb_count_per_cipher * payloads_count];
 
-        rng.fill_bytes(&mut all_weights[..combination_count * payloads_count]);
+        let distr = Uniform::new(0, p as PayloadByteType);
+
+        distr
+            .sample_iter(rng)
+            .zip(all_weights.iter_mut())
+            .take(combination_count * payloads_count)
+            .for_each(|(weight, w)| {
+                *w = weight;
+            });
+
+        // rng.fill_bytes(&mut all_weights[..combination_count * payloads_count]);
 
         let combinations = all_weights
             .par_chunks_exact(cmb_count_per_cipher * payloads_count)
@@ -371,7 +412,11 @@ impl Detector {
                                         let weight = unsafe {
                                             *weights_chunk.get_unchecked(j * payloads_count + i)
                                         };
-                                        let weighted_payload = *payload * weight;
+                                        let weighted_payload = if is_power_of_two {
+                                            payload.mul_scalar(weight, powof2_modulus)
+                                        } else {
+                                            payload.mul_scalar(weight, barrett_modulus)
+                                        };
                                         poly_chunk
                                             .iter_mut()
                                             .zip(weighted_payload.0.iter())
@@ -432,8 +477,16 @@ pub fn second_level_lut(
     output_plain_modulus: usize,
 ) -> FieldPolynomial<SecondLevelField> {
     let q = <SecondLevelField as Field>::MODULUS_VALUE;
-    let log = output_plain_modulus.trailing_zeros() - 1;
-    let scale_one = ((q >> log) + 1) >> 1;
+    let scale_one = if output_plain_modulus.is_power_of_two() {
+        let log = output_plain_modulus.trailing_zeros() - 1;
+        ((q >> log) + 1) >> 1
+    } else {
+        let delta = BigDecimal::from_u64(q).unwrap() / (output_plain_modulus as u64);
+        delta
+            .with_scale_round(0, RoundingMode::HalfUp)
+            .to_u64()
+            .unwrap()
+    };
     let log_plain_modulus = input_plain_modulus.trailing_zeros();
 
     let mut data = vec![SecondLevelField::ZERO; input_plain_modulus];

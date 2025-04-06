@@ -1,4 +1,7 @@
-use algebra::{integer::Bits, Field, NttField};
+use algebra::{
+    integer::{AsInto, Bits, UnsignedInteger},
+    Field, NttField,
+};
 use rand_distr::Uniform;
 
 #[derive(Clone, Copy)]
@@ -8,23 +11,23 @@ pub struct RetrievalParams<F: NttField> {
 
     /// The number of slots in Rlwe Ciphertext.
     polynomial_size: usize,
-    /// The number of budgets of one retrieval.
-    budget_count_per_retrieval: usize,
-    /// The number of slots per budget.
-    slots_per_budget: usize,
-    /// The number of slots per retrieval.
-    slots_per_retrieval: usize,
+    /// The number of buckets of one segment.
+    bucket_count_per_segment: usize,
+    /// The number of slots per bucket.
+    slots_per_bucket: usize,
+    /// The number of slots per segment.
+    slots_per_segment: usize,
 
-    /// The distribution of budget index.
-    budget_distr: Uniform<usize>,
+    /// The distribution of bucket index.
+    bucket_distr: Uniform<usize>,
 
-    /// The number of retrievals for omr.
-    retrieve_count: usize,
-    /// The number of retrieval result can be stored in one cipher.
-    retrieval_per_cipher: usize,
+    /// The number of segments for omr.
+    segment_count: usize,
+    /// The number of segment can be stored in one cipher.
+    segment_per_cipher: usize,
 
-    /// The maximum number of retrieval times.
-    max_retrieve_cipher_count: usize,
+    /// The maximum number of encode_indices_cipher.
+    max_encode_indices_cipher_count: usize,
 
     /// The number of pertinent payloads.
     pertinent_count: usize,
@@ -46,35 +49,51 @@ impl<F: NttField> RetrievalParams<F> {
         polynomial_size: usize,
         all_payloads_count: usize,
         pertinent_count: usize,
-        budget_count_per_retrieval: usize,
-        retrieve_count: usize,
+        bucket_count_per_segment: usize,
+        segment_count: usize,
         cmb_count_per_cipher: usize,
     ) -> Self {
-        let index_slots_per_budget = all_payloads_count
-            .next_power_of_two()
-            .trailing_zeros()
-            .div_ceil(index_modulus.trailing_zeros()) as usize;
+        let index_slots_per_bucket = if index_modulus.is_power_of_two() {
+            all_payloads_count
+                .next_power_of_two()
+                .trailing_zeros()
+                .div_ceil(index_modulus.trailing_zeros()) as usize
+        } else {
+            let index_modulus: usize = index_modulus.as_into();
+            let mut pow = all_payloads_count.ilog(index_modulus);
+            if index_modulus.pow(pow) < all_payloads_count {
+                pow += 1;
+            }
+            assert!(index_modulus.pow(pow) > all_payloads_count);
+            pow as usize
+        };
 
-        let slots_per_budget = index_slots_per_budget + 1;
-        let slots_per_retrieval = slots_per_budget * budget_count_per_retrieval;
+        let slots_per_bucket = index_slots_per_bucket + 1;
+        let slots_per_segment = slots_per_bucket * bucket_count_per_segment;
 
-        let retrieval_per_cipher = polynomial_size / slots_per_retrieval;
-        let max_retrieve_cipher_count = retrieve_count / retrieval_per_cipher;
+        let segment_per_cipher = polynomial_size / slots_per_segment;
+        let max_encode_indices_cipher_count = segment_count / segment_per_cipher;
 
-        let budget_distr = Uniform::new(0, budget_count_per_retrieval);
+        let bucket_distr = Uniform::new(0, bucket_count_per_segment);
+
+        let combination_count = if index_modulus.is_power_of_two() {
+            pertinent_count + 10
+        } else {
+            pertinent_count + 5
+        };
 
         Self {
             index_modulus,
             polynomial_size,
-            budget_count_per_retrieval,
-            slots_per_budget,
-            slots_per_retrieval,
-            budget_distr,
-            retrieve_count,
-            retrieval_per_cipher,
-            max_retrieve_cipher_count,
+            bucket_count_per_segment,
+            slots_per_bucket,
+            slots_per_segment,
+            bucket_distr,
+            segment_count,
+            segment_per_cipher,
+            max_encode_indices_cipher_count,
             pertinent_count,
-            combination_count: pertinent_count + 10,
+            combination_count,
             all_payloads_count,
             cmb_count_per_cipher,
         }
@@ -88,32 +107,32 @@ impl<F: NttField> RetrievalParams<F> {
         self.polynomial_size
     }
 
-    pub fn budget_count_per_retrieval(&self) -> usize {
-        self.budget_count_per_retrieval
+    pub fn bucket_count_per_segment(&self) -> usize {
+        self.bucket_count_per_segment
     }
 
-    pub fn slots_per_budget(&self) -> usize {
-        self.slots_per_budget
+    pub fn slots_per_bucket(&self) -> usize {
+        self.slots_per_bucket
     }
 
-    pub fn slots_per_retrieval(&self) -> usize {
-        self.slots_per_retrieval
+    pub fn slots_per_segment(&self) -> usize {
+        self.slots_per_segment
     }
 
-    pub fn budget_distr(&self) -> Uniform<usize> {
-        self.budget_distr
+    pub fn bucket_distr(&self) -> Uniform<usize> {
+        self.bucket_distr
     }
 
-    pub fn retrieve_count(&self) -> usize {
-        self.retrieve_count
+    pub fn segment_count(&self) -> usize {
+        self.segment_count
     }
 
-    pub fn retrieval_per_cipher(&self) -> usize {
-        self.retrieval_per_cipher
+    pub fn segment_per_cipher(&self) -> usize {
+        self.segment_per_cipher
     }
 
-    pub fn max_retrieve_cipher_count(&self) -> usize {
-        self.max_retrieve_cipher_count
+    pub fn max_encode_indices_cipher_count(&self) -> usize {
+        self.max_encode_indices_cipher_count
     }
 
     pub fn pertinent_count(&self) -> usize {

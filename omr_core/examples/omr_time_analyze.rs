@@ -179,7 +179,7 @@ fn omr(
     seed: [u8; 32],
 ) -> Time {
     let retrieval_params = retriever.params();
-    let max_retrieve_cipher_count = retrieval_params.max_retrieve_cipher_count();
+    let max_retrieve_cipher_count = retrieval_params.max_encode_indices_cipher_count();
 
     let time_0 = Instant::now();
 
@@ -192,12 +192,12 @@ fn omr(
 
     let compress_indices: Vec<_> = (0..max_retrieve_cipher_count)
         .into_par_iter()
-        .map(|_| detector.compress_pertinency_vector(retrieval_params, &pertinency_vector))
+        .map(|_| detector.encode_pertinent_indices(retrieval_params, &pertinency_vector))
         .collect();
 
     let time_2 = Instant::now();
 
-    let combinations = detector.generate_random_combinations(
+    let combinations = detector.encode_pertinent_payloads(
         &pertinency_vector,
         payloads_list,
         retrieval_params.combination_count(),
@@ -208,13 +208,17 @@ fn omr(
     let time_3 = Instant::now();
 
     let (indices, solved_payloads) = retriever
-        .retrieve(&compress_indices, &combinations, seed)
+        .decode_digest(&compress_indices, &combinations, seed)
         .unwrap();
 
     let time_4 = Instant::now();
 
     assert!(
-        retriever.retrieval_set().difference(&pertinent_set).count() == 0,
+        retriever
+            .pertinent_indices_set()
+            .difference(&pertinent_set)
+            .count()
+            == 0,
         "retrieval failed"
     );
 

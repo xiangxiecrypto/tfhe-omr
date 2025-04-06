@@ -1,3 +1,6 @@
+// cargo +nightly run --package omr_core --example omd --features="nightly" --release
+// cargo run --package omr_core --example omd --release
+
 use algebra::{ntt::NumberTheoryTransform, Field};
 use omr_core::{KeyGen, OmrParameters, SecondLevelField};
 use tracing::{debug, Level};

@@ -3,7 +3,7 @@
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tfhe::core_crypto::prelude::{
-    encrypt_lwe_ciphertext, keyswitch_lwe_ciphertext, CiphertextModulus, LweCiphertextMutView,
+    keyswitch_lwe_ciphertext, CiphertextModulus, LweCiphertextMutView,
 };
 
 pub fn criterion_benchmark(c: &mut Criterion) {

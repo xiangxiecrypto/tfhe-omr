@@ -77,18 +77,16 @@ pub fn criterion_benchmark(c: &mut Criterion) {
             "compress index of pertinent messages with all payloads count: {all_payloads_count}"
         ),
         |b| {
-            b.iter(|| {
-                detector.compress_pertinency_vector(retrieval_params, black_box(&detect_list))
-            });
+            b.iter(|| detector.encode_pertinent_indices(retrieval_params, black_box(&detect_list)));
         },
     );
 
-    let ct = detector.compress_pertinency_vector(retrieval_params, &detect_list);
+    let ct = detector.encode_pertinent_indices(retrieval_params, &detect_list);
 
     c.bench_function("retrieve single ciphertext", |b| {
         b.iter_batched_ref(
             || retriever.clone(),
-            |retriever| retriever.retrieve_indices(black_box(&ct)),
+            |retriever| retriever.decode_pertinent_indices(black_box(&ct)),
             BatchSize::SmallInput,
         );
     });

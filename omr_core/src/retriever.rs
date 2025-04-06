@@ -1,7 +1,8 @@
 use std::{collections::HashSet, sync::Arc};
 
 use algebra::{
-    integer::{AsFrom, AsInto, Bits},
+    integer::{AsInto, Bits, UnsignedInteger},
+    modulus::BarrettModulus,
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::FieldNttPolynomial,
     Field, NttField,
@@ -10,16 +11,21 @@ use bigdecimal::{BigDecimal, RoundingMode};
 use fhe_core::{NttRlweCiphertext, NttRlweSecretKey};
 use lattice::NttRlwe;
 use num_traits::{ConstZero, FromPrimitive, One, ToPrimitive, Zero};
-use rand::{rngs::StdRng, RngCore, SeedableRng};
+use rand::{rngs::StdRng, SeedableRng};
+use rand_distr::{Distribution, Uniform};
 
-use crate::{matrix::solve_matrix_mod_256, OmrError, Payload, RetrievalParams, PAYLOAD_LENGTH};
+use crate::{
+    matrix::{solve_matrix, solve_matrix_mod_256, solve_matrix_mod_257},
+    payload::PayloadByteType,
+    OmrError, Payload, RetrievalParams, PAYLOAD_LENGTH,
+};
 
 #[derive(Clone)]
 pub struct Retriever<F: NttField> {
     params: RetrievalParams<F>,
     ntt_table: Arc<<F as NttField>::Table>,
     key: NttRlweSecretKey<F>,
-    retrieval_set: HashSet<usize>,
+    pertinent_indices_set: HashSet<usize>,
 }
 
 impl<F: NttField> Retriever<F> {
@@ -34,7 +40,7 @@ impl<F: NttField> Retriever<F> {
             params,
             ntt_table,
             key,
-            retrieval_set: HashSet::with_capacity(params.pertinent_count()),
+            pertinent_indices_set: HashSet::with_capacity(params.pertinent_count()),
         }
     }
 
@@ -44,23 +50,27 @@ impl<F: NttField> Retriever<F> {
         self.params
     }
 
-    /// Returns a reference to the retrieval set of this [`Retriever<F>`].
+    /// Returns a reference to the pertinent indices set of this [`Retriever<F>`].
     #[inline]
-    pub fn retrieval_set(&self) -> &HashSet<usize> {
-        &self.retrieval_set
+    pub fn pertinent_indices_set(&self) -> &HashSet<usize> {
+        &self.pertinent_indices_set
     }
 
-    pub fn retrieve_indices(&mut self, compress_indices: &NttRlwe<F>) -> Result<usize, ()> {
-        let slots_per_budget = self.params.slots_per_budget();
-        let slots_per_retrieval = self.params.slots_per_retrieval();
+    pub fn decode_pertinent_indices(&mut self, encoded_indices: &NttRlwe<F>) -> Result<usize, ()> {
+        let slots_per_bucket = self.params.slots_per_bucket();
+        let slots_per_segment = self.params.slots_per_segment();
         let index_modulus = self.params.index_modulus();
+
+        let is_power_of_two = index_modulus.is_power_of_two();
 
         let shift_bits = index_modulus.trailing_zeros();
 
-        let q = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
-        let p = BigDecimal::from_u64(index_modulus.as_into()).unwrap();
+        let q: u64 = <F as Field>::MODULUS_VALUE.as_into();
+        let q = BigDecimal::from(q);
+        let p: u16 = index_modulus.as_into();
+        let p = BigDecimal::from(p);
 
-        let decrypted_ntt = compress_indices.b() - compress_indices.a().clone() * &*self.key;
+        let decrypted_ntt = encoded_indices.b() - encoded_indices.a().clone() * &*self.key;
         let decrypted = self.ntt_table.inverse_transform_inplace(decrypted_ntt);
         let decoded = decrypted
             .into_iter()
@@ -74,193 +84,239 @@ impl<F: NttField> Retriever<F> {
             })
             .collect::<Vec<F::ValueT>>();
 
-        decoded.chunks_exact(slots_per_retrieval).for_each(|chunk| {
-            chunk.chunks_exact(slots_per_budget).for_each(|budget| {
-                if budget.last().unwrap().is_one() {
-                    let index = budget
-                        .iter()
-                        .rev()
-                        .skip(1)
-                        .fold(<F::ValueT as ConstZero>::ZERO, |acc, &v| {
-                            (acc << shift_bits) | v
-                        });
-                    self.retrieval_set.insert(index.as_into());
-                }
+        if is_power_of_two {
+            decoded.chunks_exact(slots_per_segment).for_each(|chunk| {
+                chunk.chunks_exact(slots_per_bucket).for_each(|bucket| {
+                    if bucket.last().unwrap().is_one() {
+                        let index = bucket
+                            .iter()
+                            .rev()
+                            .skip(1)
+                            .fold(<F::ValueT as ConstZero>::ZERO, |acc, &v| {
+                                (acc << shift_bits) | v
+                            });
+                        self.pertinent_indices_set.insert(index.as_into());
+                    }
+                });
             });
-        });
+        } else {
+            decoded.chunks_exact(slots_per_segment).for_each(|chunk| {
+                chunk.chunks_exact(slots_per_bucket).for_each(|bucket| {
+                    if bucket.last().unwrap().is_one() {
+                        let index = bucket
+                            .iter()
+                            .rev()
+                            .skip(1)
+                            .fold(<F::ValueT as ConstZero>::ZERO, |acc, &v| {
+                                acc * index_modulus + v
+                            });
+                        self.pertinent_indices_set.insert(index.as_into());
+                    }
+                });
+            });
+        }
 
-        if self.retrieval_set.len() == self.params.pertinent_count() {
+        if self.pertinent_indices_set.len() == self.params.pertinent_count() {
             Ok(self.params.pertinent_count())
         } else {
             Err(())
         }
     }
 
-    pub fn test_combine(
-        &self,
-        indices: &[usize],
-        combinations: &[NttRlweCiphertext<F>],
-        payloads: &[Payload],
-        seed: [u8; 32],
-    ) {
-        let combination_count = self.params.combination_count();
-        let all_payloads_count = self.params.all_payloads_count();
+    // pub fn test_combine(
+    //     &self,
+    //     indices: &[usize],
+    //     combinations: &[NttRlweCiphertext<F>],
+    //     payloads: &[Payload],
+    //     seed: [u8; 32],
+    // ) {
+    //     let combination_count = self.params.combination_count();
+    //     let all_payloads_count = self.params.all_payloads_count();
 
-        let retrieval_count = indices.len();
+    //     let retrieval_count = indices.len();
 
-        let get_matrix = || {
-            let mut seed_rng = StdRng::from_seed(seed);
-            let mut weights = vec![0u8; combination_count * all_payloads_count];
-            seed_rng.fill_bytes(&mut weights);
+    //     let get_matrix = || {
+    //         let mut seed_rng = StdRng::from_seed(seed);
+    //         let mut weights = vec![0u8; combination_count * all_payloads_count];
+    //         seed_rng.fill_bytes(&mut weights);
 
-            let mut matrix = vec![vec![0u8; retrieval_count]; combination_count];
-            let mut matrix_iter = matrix.iter_mut();
-            for weights_chunk in weights.chunks_exact(all_payloads_count) {
-                let row = matrix_iter.next().unwrap();
-                row.iter_mut()
-                    .zip(indices.iter())
-                    .for_each(|(ele, &i): (&mut u8, &usize)| {
-                        *ele = weights_chunk[i];
-                    })
-            }
-            matrix
-        };
+    //         let mut matrix = vec![vec![0u8; retrieval_count]; combination_count];
+    //         let mut matrix_iter = matrix.iter_mut();
+    //         for weights_chunk in weights.chunks_exact(all_payloads_count) {
+    //             let row = matrix_iter.next().unwrap();
+    //             row.iter_mut()
+    //                 .zip(indices.iter())
+    //                 .for_each(|(ele, &i): (&mut u8, &usize)| {
+    //                     *ele = weights_chunk[i];
+    //                 })
+    //         }
+    //         matrix
+    //     };
 
-        let (matrix, combined_payloads) = rayon::join(get_matrix, || {
-            self.decode_combined_payloads_with_noise(combinations)
-        });
+    //     let (matrix, combined_payloads) = rayon::join(get_matrix, || {
+    //         self.decode_combined_payloads_with_noise(combinations)
+    //     });
 
-        for (row, &cmb) in matrix.iter().zip(combined_payloads.iter()) {
-            let payload = row
-                .iter()
-                .zip(indices.iter())
-                .fold(Payload::new(), |acc, (&weight, &i)| {
-                    acc + (payloads[i] * weight)
-                });
-            if payload != cmb {
-                let count = payload
-                    .iter()
-                    .zip(cmb.iter())
-                    .enumerate()
-                    .filter(|(_i, (a, b))| a != b)
-                    .map(|(i, (a, b))| {
-                        println!("Different at {}: {} != {}", i, a, b);
-                    })
-                    .count();
-                panic!("Different count: {}", count);
-            }
-        }
-    }
+    //     for (row, &cmb) in matrix.iter().zip(combined_payloads.iter()) {
+    //         let payload = row
+    //             .iter()
+    //             .zip(indices.iter())
+    //             .fold(Payload::new(), |acc, (&weight, &i)| {
+    //                 acc + (payloads[i] * weight)
+    //             });
+    //         if payload != cmb {
+    //             let count = payload
+    //                 .iter()
+    //                 .zip(cmb.iter())
+    //                 .enumerate()
+    //                 .filter(|(_i, (a, b))| a != b)
+    //                 .map(|(i, (a, b))| {
+    //                     println!("Different at {}: {} != {}", i, a, b);
+    //                 })
+    //                 .count();
+    //             panic!("Different count: {}", count);
+    //         }
+    //     }
+    // }
 
-    pub fn retrieve(
+    pub fn decode_digest(
         &mut self,
-        compress_indices: &[NttRlwe<F>],
-        combinations: &[NttRlweCiphertext<F>],
+        encode_pertinent_indices: &[NttRlwe<F>],
+        encode_pertinent_payloads: &[NttRlweCiphertext<F>],
         seed: [u8; 32],
     ) -> Result<(Vec<usize>, Vec<Payload>), OmrError> {
         let combination_count = self.params.combination_count();
         let all_payloads_count = self.params.all_payloads_count();
+        let p: PayloadByteType = self.params.index_modulus().as_into();
 
-        for ciphertext in compress_indices.iter() {
-            if self.retrieve_indices(ciphertext).is_ok() {
+        for ciphertext in encode_pertinent_indices.iter() {
+            if self.decode_pertinent_indices(ciphertext).is_ok() {
                 break;
             }
         }
 
-        let retrieval_set = self.retrieval_set();
-        let mut indices = retrieval_set.iter().copied().collect::<Vec<usize>>();
+        let pertinent_indices_set = self.pertinent_indices_set();
+        let mut indices = pertinent_indices_set
+            .iter()
+            .copied()
+            .collect::<Vec<usize>>();
         indices.sort_unstable();
 
-        let retrieval_count = indices.len();
+        let pertinent_count = indices.len();
 
         let get_matrix = || {
             let mut seed_rng = StdRng::from_seed(seed);
-            let mut weights = vec![0u8; combination_count * all_payloads_count];
-            seed_rng.fill_bytes(&mut weights);
+            let mut weights: Vec<PayloadByteType> = vec![0; combination_count * all_payloads_count];
 
-            let mut matrix = vec![vec![0u8; retrieval_count]; combination_count];
+            let distr: Uniform<PayloadByteType> = Uniform::new(0, p);
+
+            distr
+                .sample_iter(&mut seed_rng)
+                .zip(weights.iter_mut())
+                .for_each(|(weight, w): (PayloadByteType, &mut PayloadByteType)| {
+                    *w = weight;
+                });
+
+            let mut matrix: Vec<Vec<PayloadByteType>> =
+                vec![vec![0; pertinent_count]; combination_count];
             let mut matrix_iter = matrix.iter_mut();
             for weights_chunk in weights.chunks_exact(all_payloads_count) {
                 let row = matrix_iter.next().unwrap();
-                row.iter_mut()
-                    .zip(indices.iter())
-                    .for_each(|(ele, &i): (&mut u8, &usize)| {
+                row.iter_mut().zip(indices.iter()).for_each(
+                    |(ele, &i): (&mut PayloadByteType, &usize)| {
                         *ele = weights_chunk[i];
-                    })
+                    },
+                )
             }
             matrix
         };
 
-        let (mut matrix, mut combined_payloads) =
-            rayon::join(get_matrix, || self.decode_combined_payloads(combinations));
+        let (mut matrix, mut combined_payloads) = rayon::join(get_matrix, || {
+            self.decode_combined_payloads(encode_pertinent_payloads)
+        });
 
-        let payloads = solve_matrix_mod_256(&mut matrix, &mut combined_payloads)?;
+        let payloads = if p == 256 {
+            solve_matrix_mod_256(&mut matrix, &mut combined_payloads)?
+        } else if p == 257 {
+            solve_matrix_mod_257(&mut matrix, &mut combined_payloads)?
+        } else {
+            solve_matrix(
+                &mut matrix,
+                &mut combined_payloads,
+                <BarrettModulus<PayloadByteType>>::new(p),
+                p,
+            )?
+        };
 
         Ok((indices, payloads))
     }
 
-    pub fn decode_combined_payloads_with_noise(
-        &self,
-        combinations: &[NttRlweCiphertext<F>],
-    ) -> Vec<Payload> {
-        let combination_count = self.params.combination_count();
-        let cmb_count_per_cipher = self.params.cmb_count_per_cipher();
-        let all_count = self.params.combination_count() * 612;
+    // pub fn decode_combined_payloads_with_noise(
+    //     &self,
+    //     combinations: &[NttRlweCiphertext<F>],
+    // ) -> Vec<Payload> {
+    //     let combination_count = self.params.combination_count();
+    //     let cmb_count_per_cipher = self.params.cmb_count_per_cipher();
+    //     let all_count = self.params.combination_count() * 612;
 
-        let q: <F as Field>::ValueT = <F as Field>::MODULUS_VALUE;
-        let delta: <F as Field>::ValueT = q / 256u16.as_into();
-        let sigma = 349228353888.975f64;
-        let mut noise_sigma_info = NoiseSigmaInfo::<F>::new(sigma, q, all_count);
+    //     let q: <F as Field>::ValueT = <F as Field>::MODULUS_VALUE;
+    //     let delta: <F as Field>::ValueT = q / 256u16.as_into();
+    //     let sigma = 349228353888.975f64;
+    //     let mut noise_sigma_info = NoiseSigmaInfo::<F>::new(sigma, q, all_count);
 
-        let q_d = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
-        let p = BigDecimal::from_u16(256).unwrap();
+    //     let q_d = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
+    //     let p = BigDecimal::from_u16(256).unwrap();
 
-        let mut payloads = vec![Payload::new(); combination_count];
-        let mut temp = <FieldNttPolynomial<F>>::zero(self.ntt_table.dimension());
+    //     let mut payloads = vec![Payload::new(); combination_count];
+    //     let mut temp = <FieldNttPolynomial<F>>::zero(self.ntt_table.dimension());
 
-        payloads
-            .chunks_mut(cmb_count_per_cipher)
-            .zip(combinations.iter())
-            .for_each(
-                |(payload_chunk, cipher): (&mut [Payload], &NttRlweCiphertext<F>)| {
-                    sub_mul(cipher.b(), cipher.a(), &self.key, &mut temp);
-                    self.ntt_table.inverse_transform_slice(temp.as_mut_slice());
-                    payload_chunk
-                        .iter_mut()
-                        .zip(temp.as_slice().chunks_exact(PAYLOAD_LENGTH))
-                        .for_each(|(payload, dec_chunk)| {
-                            payload
-                                .iter_mut()
-                                .zip(dec_chunk.iter())
-                                .for_each(|(byte, &coeff)| {
-                                    let mut t = (BigDecimal::from_u64(coeff.as_into()).unwrap()
-                                        * &p
-                                        / &q_d)
-                                        .with_scale_round(0, RoundingMode::HalfUp);
-                                    if t >= p {
-                                        t -= &p;
-                                    }
-                                    *byte = t.to_u64().unwrap() as u8;
-                                    let value = F::mul(<F as Field>::ValueT::as_from(*byte), delta);
-                                    let x = F::sub(coeff, value);
+    //     payloads
+    //         .chunks_mut(cmb_count_per_cipher)
+    //         .zip(combinations.iter())
+    //         .for_each(
+    //             |(payload_chunk, cipher): (&mut [Payload], &NttRlweCiphertext<F>)| {
+    //                 sub_mul(cipher.b(), cipher.a(), &self.key, &mut temp);
+    //                 self.ntt_table.inverse_transform_slice(temp.as_mut_slice());
+    //                 payload_chunk
+    //                     .iter_mut()
+    //                     .zip(temp.as_slice().chunks_exact(PAYLOAD_LENGTH))
+    //                     .for_each(|(payload, dec_chunk)| {
+    //                         payload
+    //                             .iter_mut()
+    //                             .zip(dec_chunk.iter())
+    //                             .for_each(|(byte, &coeff)| {
+    //                                 let mut t = (BigDecimal::from_u64(coeff.as_into()).unwrap()
+    //                                     * &p
+    //                                     / &q_d)
+    //                                     .with_scale_round(0, RoundingMode::HalfUp);
+    //                                 if t >= p {
+    //                                     t -= &p;
+    //                                 }
+    //                                 *byte = t.to_u64().unwrap() as u8;
+    //                                 let value = F::mul(<F as Field>::ValueT::as_from(*byte), delta);
+    //                                 let x = F::sub(coeff, value);
 
-                                    noise_sigma_info.check_noise_sigma(x);
-                                });
-                        });
-                },
-            );
+    //                                 noise_sigma_info.check_noise_sigma(x);
+    //                             });
+    //                     });
+    //             },
+    //         );
 
-        noise_sigma_info.print();
+    //     noise_sigma_info.print();
 
-        payloads
-    }
+    //     payloads
+    // }
 
     pub fn decode_combined_payloads(&self, combinations: &[NttRlweCiphertext<F>]) -> Vec<Payload> {
         let combination_count = self.params.combination_count();
         let cmb_count_per_cipher = self.params.cmb_count_per_cipher();
 
-        let q = BigDecimal::from_u64(<F as Field>::MODULUS_VALUE.as_into()).unwrap();
-        let p = BigDecimal::from_u16(256).unwrap();
+        let index_modulus = self.params.index_modulus();
+
+        let q: u64 = <F as Field>::MODULUS_VALUE.as_into();
+        let q = BigDecimal::from(q);
+        let p: u16 = index_modulus.as_into();
+        let p = BigDecimal::from(p);
 
         let mut payloads = vec![Payload::new(); combination_count];
         let mut temp = <FieldNttPolynomial<F>>::zero(self.ntt_table.dimension());
@@ -286,7 +342,7 @@ impl<F: NttField> Retriever<F> {
                                     if t >= p {
                                         t -= &p;
                                     }
-                                    *byte = t.to_u64().unwrap() as u8;
+                                    *byte = t.to_u64().unwrap() as PayloadByteType;
                                 });
                         })
                 },
