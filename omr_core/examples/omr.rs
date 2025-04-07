@@ -20,10 +20,10 @@ use tracing_subscriber::fmt::format::FmtSpan;
 #[derive(Parser)]
 struct Args {
     /// thread count
-    #[arg(short = 't')]
+    #[arg(short = 't', long)]
     thread_count: Option<usize>,
-    // payload count
-    #[arg(short = 'p')]
+    /// payload count
+    #[arg(short = 'p', long)]
     payload_count: Option<usize>,
 }
 
@@ -54,7 +54,11 @@ fn main() {
     println!("num threads: {}", num_threads);
 
     let all_payloads_count = if let Some(payload_count) = payload_count {
-        payload_count
+        if payload_count > 0 {
+            payload_count
+        } else {
+            1
+        }
     } else {
         num_threads * 8
     };
