@@ -101,9 +101,9 @@ all payloads count: 65536
 ### Run the InstantOMR example with arbitrary D and multi-threading:
 
 ```bash
-cargo run --package omr_core --example omr --release -- --thread-count 4 --payload-count 10
+cargo run --package omr_core --example omr --release -- --thread-count 4 --payload-count 16
 # or
-cargo run --package omr_core --example omr --release -- -t 4 -p 10
+cargo run --package omr_core --example omr --release -- -t 4 -p 16
 ```
 
 Parameters:
@@ -112,9 +112,9 @@ Parameters:
 
 ### For AVX512 support (requires nightly toolchain):
 ```bash
-cargo +nightly run --package omr_core --example omr --features="nightly" --release -- --thread-count 4 --payload-count 10
+cargo +nightly run --package omr_core --example omr --features="nightly" --release -- --thread-count 4 --payload-count 16
 # or
-cargo +nightly run --package omr_core --example omr --features="nightly" --release -- -t 4 -p 10
+cargo +nightly run --package omr_core --example omr --features="nightly" --release -- -t 4 -p 16
 ```
 
 Note: AVX512 support requires:
