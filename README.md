@@ -2,11 +2,12 @@
 
 ## Abstract
 
-Oblivious message retrieval (OMR) enables resource-limited recipients to outsource the expensive message retrieval process in anonymous messaging systems while preserving privacy.
+Oblivious message retrieval (OMR) addresses the expensive message retrieval process in anonymous messaging systems and private blockchains. It enables resource-limited recipients to outsource detection and retrieval of their messages, while preserving privacy.
 
-This work introduces **InstantOMR**, a novel OMR scheme that combines TFHE functional bootstrapping with standard RLWE operations in a hybrid design. **InstantOMR** is specifically optimized for low latency and high parallelizability. Our implementation using the **Primus-fhe** library (and estimates based on **TFHE-rs**) demonstrates that **InstantOMR** has the following key advantages:
-- **Low latency:** **InstantOMR** achieves $> 480\times$ lower latency than **SophOMR** (the existing highest throughput OMR) and $> 280\times$ lower than **PerfOMR** (the existing lowest latency OMR) for a single message using a single CPU core with **TFHE-rs**. This translates directly into reduced recipient waiting time (by the same factor) in *streaming* setting, where the detector processes incoming messages on-the-fly and returns a digest immediately upon the recipient becomes online.
-- **Optimal parallelizability:** **InstantOMR** scales near-optimally with available CPU cores. This is enabled by a design where each message is processed independently. With 180 physical cores, it achieves nearly $180\times$ speedup over single-core execution, approximately $4.5\times$ faster than **SophOMR**, which gains limited benefit from multi-threading due to its reliance on BFV.
+This work introduces **InstantOMR**, a novel OMR scheme that combines TFHE functional bootstrapping with standard RLWE operations in a hybrid design. **InstantOMR** is specifically optimized for low latency and high parallelizability. Our implementation, using the **Primus-fhe** library (and estimates based on **TFHE-rs**), demonstrates that **InstantOMR** offers the following key advantages:
+
+- **Low latency:** **InstantOMR** achieves ${\sim} 600\times$ lower latency than **SophOMR**, the state-of-the-art single-server OMR construction. This translates directly into reduced recipient waiting time (by the same factor) in the \textit{streaming} setting, where the detector processes incoming messages on-the-fly and returns a digest immediately upon the recipient becomes online.
+- **Optimal parallelizability:** **InstantOMR** scales near-optimally with available CPU cores (by processing messages independently), so for high core counts it is faster than SophOMR (whose parallelism is constrained by reliance on BFV).
 
 ## Install Rust
 
