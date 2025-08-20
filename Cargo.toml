@@ -1,0 +1,30 @@
+[workspace]
+
+members = ["omr_core", "omr_core2"]
+
+resolver = "2"
+
+[workspace.dependencies]
+tracing = "0.1"
+thiserror = "2"
+num-traits = "0.2"
+rand_core = "0.6"
+rand = "0.8"
+rand_distr = "0.4"
+itertools = "0.14"
+rayon = "1.10"
+serde = { version = "1.0", features = ["derive"] }
+
+algebra = { git = "https://github.com/primus-labs/primus-fhe", rev = "044b88f3e26c5e8c7e921c9008164d2414d351c2", default-features = false }
+lattice = { git = "https://github.com/primus-labs/primus-fhe", rev = "044b88f3e26c5e8c7e921c9008164d2414d351c2", default-features = false }
+fhe_core = { git = "https://github.com/primus-labs/primus-fhe", rev = "044b88f3e26c5e8c7e921c9008164d2414d351c2", default-features = false }
+
+criterion2 = "3.0.0"
+
+[profile.bench]
+lto = true
+codegen-units = 1
+
+[profile.release]
+lto = true
+codegen-units = 1

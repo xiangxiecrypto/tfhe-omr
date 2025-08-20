@@ -1,0 +1,18 @@
+[package]
+name = "omr_core2"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+tfhe = { version = "1.1", features = ["boolean", "shortint"] }
+
+[features]
+default = []
+nightly = ["tfhe/nightly-avx512"]
+
+[dev-dependencies]
+criterion2 = { workspace = true }
+
+[[bench]]
+name = "two_level_bs"
+harness = false

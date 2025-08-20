@@ -1,0 +1,53 @@
+[package]
+name = "omr_core"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+algebra = { workspace = true }
+lattice = { workspace = true }
+fhe_core = { workspace = true }
+
+thiserror = { workspace = true }
+
+num-traits = { workspace = true }
+
+rand_core = { workspace = true }
+rand = { workspace = true }
+rand_distr = { workspace = true }
+itertools = { workspace = true }
+rayon = { workspace = true }
+bigdecimal = "0.4.7"
+
+[dev-dependencies]
+tracing = { workspace = true }
+tracing-subscriber = { version = "0.3", features = [
+    "parking_lot",
+    "time",
+    "local-time",
+] }
+serde = { workspace = true }
+humantime-serde = "1.1.1"
+csv = "1.3"
+indicatif = { version = "0.17.9", features = ["rayon"] }
+criterion2 = { workspace = true }
+chrono = "0.4.40"
+clap = { version = "4", features = ["derive"] }
+num_cpus = "1.0"
+
+[features]
+default = ["concrete-ntt"]
+concrete-ntt = [
+    "algebra/concrete-ntt",
+    "lattice/concrete-ntt",
+    "fhe_core/concrete-ntt",
+]
+nightly = ["algebra/nightly", "lattice/nightly", "fhe_core/nightly"]
+
+[[bench]]
+name = "omr"
+harness = false
+
+[[bench]]
+name = "two_level_bs"
+harness = false
