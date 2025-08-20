@@ -33,6 +33,7 @@ pub struct OmrParameters {
 }
 
 impl OmrParameters {
+    #[allow(clippy::new_without_default)]
     pub fn new() -> OmrParameters {
         let clue_params = <LweParameters<ClueValue, ClueModulus>>::new(
             512,

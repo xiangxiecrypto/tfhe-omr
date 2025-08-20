@@ -118,23 +118,20 @@ fn omr(
         .enumerate()
         .filter(|(_i, f)| **f)
         .for_each(|(i, _)| {
-            pertinent_set.insert(i as usize);
+            pertinent_set.insert(i);
         });
 
     debug!("Generating clues...");
     let start = Instant::now();
     let clues_list: Vec<CmLweCiphertext<u16>> = pertinent
         .par_iter()
-        .map_init(
-            || rand::thread_rng(),
-            |rng, &f| {
-                if f {
-                    sender.gen_clues(rng)
-                } else {
-                    sender2.gen_clues(rng)
-                }
-            },
-        )
+        .map_init(rand::thread_rng, |rng, &f| {
+            if f {
+                sender.gen_clues(rng)
+            } else {
+                sender2.gen_clues(rng)
+            }
+        })
         .collect();
     let end = Instant::now();
     info!("gen clues time: {:?}", end - start);
@@ -143,7 +140,7 @@ fn omr(
     let start = Instant::now();
     let payloads: Vec<Payload> = (0..all_payloads_count)
         .into_par_iter()
-        .map_init(|| rand::thread_rng(), |rng, _| Payload::random(rng))
+        .map_init(rand::thread_rng, |rng, _| Payload::random(rng))
         .collect();
     let end = Instant::now();
     info!("gen payloads time: {:?}", end - start);

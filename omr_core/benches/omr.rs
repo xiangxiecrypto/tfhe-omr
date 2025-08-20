@@ -46,22 +46,19 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let mut pertinent_set = HashSet::new();
     pertinent.iter().enumerate().for_each(|(i, &f)| {
         if f {
-            pertinent_set.insert(i as usize);
+            pertinent_set.insert(i);
         }
     });
 
     let clues_list: Vec<CmLweCiphertext<u16>> = pertinent
         .par_iter()
-        .map_init(
-            || rand::thread_rng(),
-            |rng, &f| {
-                if f {
-                    sender.gen_clues(rng)
-                } else {
-                    sender2.gen_clues(rng)
-                }
-            },
-        )
+        .map_init(rand::thread_rng, |rng, &f| {
+            if f {
+                sender.gen_clues(rng)
+            } else {
+                sender2.gen_clues(rng)
+            }
+        })
         .collect();
 
     let detect_list: Vec<NttRlwe<SecondLevelField>> = clues_list

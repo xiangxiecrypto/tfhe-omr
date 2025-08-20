@@ -11,6 +11,7 @@ pub struct Payload(pub [PayloadByteType; PAYLOAD_LENGTH]);
 impl Payload {
     /// Creates a new [`Payload`].
     #[inline]
+    #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Payload([0; PAYLOAD_LENGTH])
     }

@@ -60,9 +60,9 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
-    // let num_threads_vec = vec![16];
-    // let num_threads_vec = vec![1, 2, 4, 8, 16];
-    let num_threads_vec = vec![1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
+    // let num_threads_vec = [16];
+    // let num_threads_vec = [1, 2, 4, 8, 16];
+    let num_threads_vec = [1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {
@@ -138,7 +138,7 @@ fn generate_pertinent_set(pertinent_tag: &[bool]) -> HashSet<usize> {
         .enumerate()
         .filter(|(_i, f)| **f)
         .for_each(|(i, _)| {
-            pertinent_set.insert(i as usize);
+            pertinent_set.insert(i);
         });
     pertinent_set
 }
@@ -150,23 +150,20 @@ fn generate_clues(
 ) -> Vec<CmLweCiphertext<u16>> {
     pertinent
         .par_iter()
-        .map_init(
-            || rand::thread_rng(),
-            |rng, &f| {
-                if f {
-                    sender.gen_clues(rng)
-                } else {
-                    sender2.gen_clues(rng)
-                }
-            },
-        )
+        .map_init(rand::thread_rng, |rng, &f| {
+            if f {
+                sender.gen_clues(rng)
+            } else {
+                sender2.gen_clues(rng)
+            }
+        })
         .collect()
 }
 
 fn generate_payloads(all_payloads_count: usize) -> Vec<Payload> {
     (0..all_payloads_count)
         .into_par_iter()
-        .map_init(|| rand::thread_rng(), |rng, _| Payload::random(rng))
+        .map_init(rand::thread_rng, |rng, _| Payload::random(rng))
         .collect()
 }
 
@@ -216,7 +213,7 @@ fn omr(
     assert!(
         retriever
             .pertinent_indices_set()
-            .difference(&pertinent_set)
+            .difference(pertinent_set)
             .count()
             == 0,
         "retrieval failed"

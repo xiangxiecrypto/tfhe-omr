@@ -56,6 +56,7 @@ impl<F: NttField> Retriever<F> {
         &self.pertinent_indices_set
     }
 
+    #[allow(clippy::result_unit_err)]
     pub fn decode_pertinent_indices(&mut self, encoded_indices: &NttRlwe<F>) -> Result<usize, ()> {
         let slots_per_bucket = self.params.slots_per_bucket();
         let slots_per_segment = self.params.slots_per_segment();
@@ -363,6 +364,7 @@ pub fn sub_mul<F: NttField>(
         .zip(ca.iter())
         .zip(sk.iter())
         .for_each(
+            #[allow(clippy::type_complexity)]
             |(((d, &b), &a), &s): (
                 (
                     (&mut <F as Field>::ValueT, &<F as Field>::ValueT),
