@@ -58,8 +58,8 @@ impl OmrParameters {
             output_cipher_dimension: 670,
             log_modulus: <FirstLevelField as Field>::ValueT::BITS
                 - first_level_blind_rotation_params.modulus.leading_zeros(),
-            log_basis: 1,
-            reverse_length: None,
+            log_basis: 2,
+            reverse_length: Some(7),
             noise_standard_deviation: 2.0329 * (2.0f64.powf(10.0)),
         };
 
@@ -76,7 +76,7 @@ impl OmrParameters {
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
             noise_standard_deviation: 0.3908,
-            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 9, Some(5)),
+            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 8, Some(5)),
         };
 
         let trace_params = GadgetRlweParameters::<SecondLevelField> {
