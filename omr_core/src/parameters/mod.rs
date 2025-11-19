@@ -76,7 +76,7 @@ impl OmrParameters {
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
             noise_standard_deviation: 0.3908,
-            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 7, Some(6)),
+            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 9, Some(5)),
         };
 
         let trace_params = GadgetRlweParameters::<SecondLevelField> {
@@ -84,7 +84,7 @@ impl OmrParameters {
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
             noise_standard_deviation: 0.3908,
-            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 2, None),
+            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 3, None),
         };
 
         // let output_plain_modulus_value = 1 << 8;
