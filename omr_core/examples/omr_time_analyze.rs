@@ -62,7 +62,7 @@ fn main() {
 
     // let num_threads_vec = [16];
     // let num_threads_vec = [1, 2, 4, 8, 16];
-    let num_threads_vec = [1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
+    let num_threads_vec = [1, 2, 4, 8, 16, 32, 64, 128];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {
@@ -73,7 +73,7 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    for all_payloads_count in (0..=16).rev().map(|i| 1 << i) {
+    for all_payloads_count in [1_0000] {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
