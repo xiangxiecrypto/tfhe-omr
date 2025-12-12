@@ -6,7 +6,7 @@ Oblivious message retrieval (OMR) addresses the expensive message retrieval proc
 
 This work introduces **InstantOMR**, a novel OMR scheme that combines TFHE functional bootstrapping with standard RLWE operations in a hybrid design. **InstantOMR** is specifically optimized for low latency and high parallelizability. Our implementation, using the **Primus-fhe** library (and estimates based on **TFHE-rs**), demonstrates that **InstantOMR** offers the following key advantages:
 
-- **Low latency:** **InstantOMR** achieves ${\sim} 860\times$ lower latency than **SophOMR**, the state-of-the-art single-server OMR construction. This translates directly into reduced recipient waiting time (by the same factor) in the \textit{streaming} setting, where the detector processes incoming messages on-the-fly and returns a digest immediately upon the recipient becomes online.
+- **Low latency:** **InstantOMR** achieves ${\sim} 860\times$ lower latency than **SophOMR**, the state-of-the-art single-server OMR construction. This translates directly into reduced recipient waiting time (by the same factor) in the *streaming* setting, where the detector processes incoming messages on-the-fly and returns a digest immediately upon the recipient becomes online.
 - **Optimal parallelizability:** **InstantOMR** scales near-optimally with available CPU cores (by processing messages independently), so for high core counts it is faster than SophOMR (whose parallelism is constrained by reliance on BFV).
 
 ## Install Rust
