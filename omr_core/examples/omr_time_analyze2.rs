@@ -56,9 +56,9 @@ fn main() {
 
     let detector = secret_key_pack.generate_detector(&mut rng);
 
+    let num_threads_vec = [1, 2, 4, 8];
     // let num_threads_vec = [16];
-    // let num_threads_vec = [1, 2, 4, 8, 16];
-    let num_threads_vec = [1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
+    // let num_threads_vec = [1, 2, 4, 8, 16, 32, 64, 90, 96, 128, 160, 180];
     let pools = num_threads_vec
         .iter()
         .map(|&num_threads| {
@@ -69,7 +69,9 @@ fn main() {
         })
         .collect::<Vec<_>>();
 
-    for all_payloads_count in (0..=16).rev().map(|i| 1 << i) {
+    // for all_payloads_count in (0..=16).rev().map(|i| 1 << i) {
+    for all_payloads_count in (0..=8).rev().map(|i| 1 << i) {
+    // for all_payloads_count in [256, 512] {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());

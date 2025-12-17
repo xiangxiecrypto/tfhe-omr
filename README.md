@@ -38,7 +38,7 @@ For more information, see the [Rust installation guide](https://www.rust-lang.or
 
 ## Run InstantOMR example (omr_core\examples\omr.rs)
 
-### Recover our latency (per message), table 1 column 2 row 5
+### Recover our latency (per message), table 1 column 2 row 6
 
 ```bash
 cargo run --package omr_core --example omr --release -- --thread-count 1 --payload-count 1
@@ -68,7 +68,7 @@ all payloads count: 1
 2025-04-14T14:08:23.011637Z  INFO ThreadId(01) omr: All done
 ```
 
-### Recover our runtime for D = 65536, single-core, table 1 column 3 row 5.
+### Recover our runtime for D = 65536, single-core, table 1 column 3 row 6.
 *This is expected to run at least around 4 hours.*
 
 ```bash
