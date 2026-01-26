@@ -13,10 +13,19 @@ This work introduces **InstantOMR**, a novel OMR scheme that combines TFHE funct
 
 This project relies on Rust and the nightly toolchain. Installation can be done by following these steps:
 
+1. Install build tools.
+On Windows, please install [Visual Studio C++ Build tools](https://rust-lang.github.io/rustup/installation/windows-msvc.html).
+On Ubuntu and Debian, please install build-essential according to the instructions below:
+   ```bash
+   sudo apt-get update
+   sudo apt-get install build-essential
+   ```
+
 1. Install Rust using rustup (the recommended Rust installer):
    ```bash
    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
    ```
+   On Windows, one can download and run the installer ``rustup-init.exe'' from [https://rust-lang.org/tools/install/](https://rust-lang.org/tools/install/).
 
 2. After installation, verify Rust is installed correctly:
    ```bash
@@ -38,7 +47,7 @@ For more information, see the [Rust installation guide](https://www.rust-lang.or
 
 ## Run InstantOMR example (omr_core\examples\omr.rs)
 
-### Recover our latency (per message), table 1 column 2 row 6
+### [Latency]: Recover our latency (per message), table 1 column 2 row 6
 
 ```bash
 cargo run --package omr_core --example omr --release -- --thread-count 1 --payload-count 1
@@ -68,7 +77,7 @@ all payloads count: 1
 2025-04-14T14:08:23.011637Z  INFO ThreadId(01) omr: All done
 ```
 
-### Recover our runtime for D = 65536, single-core, table 1 column 3 row 6.
+### [Throughput]: Recover our runtime for D = 65536, single-core, table 1 column 3 row 6.
 *This is expected to run at least around 4 hours.*
 
 ```bash
@@ -100,17 +109,20 @@ all payloads count: 65536
 ```
 
 
-### Run the InstantOMR example with arbitrary D and multi-threading:
+### [Parallelizability]: Run the InstantOMR example with arbitrary D and multi-threading:
 
 ```bash
-cargo run --package omr_core --example omr --release -- --thread-count 4 --payload-count 16
+cargo run --package omr_core --example omr --release -- --thread-count 8 --payload-count 8
 # or
-cargo run --package omr_core --example omr --release -- -t 4 -p 16
+cargo run --package omr_core --example omr --release -- -t 8 -p 8
 ```
 
 Parameters:
 - `thread-count`: the number of threads to use for parallel processing (default: number of logical cores)
 - `payload-count`: D, the number of messages to process (default: 8*thread-count)
+
+It should be noted that the maximum payload-count supported by **InstantOMR** example is 65536, and the maximum thread-count is recommended to be the number of cores of the machine.
+For example, a CPU with 8 cores and 16 threads can run 16 threads at the same time, but the optimal operating efficiency is achieved at 8 threads.
 
 ### For AVX512 support (requires nightly toolchain):
 ```bash
