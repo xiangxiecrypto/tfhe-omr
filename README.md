@@ -9,6 +9,16 @@ This work introduces **InstantOMR**, a novel OMR scheme that combines TFHE funct
 - **Low latency:** **InstantOMR** achieves ${\sim} 860\times$ lower latency than **SophOMR**, the state-of-the-art single-server OMR construction. This translates directly into reduced recipient waiting time (by the same factor) in the *streaming* setting, where the detector processes incoming messages on-the-fly and returns a digest immediately upon the recipient becomes online.
 - **Optimal parallelizability:** **InstantOMR** scales near-optimally with available CPU cores (by processing messages independently), so for high core counts it is faster than SophOMR (whose parallelism is constrained by reliance on BFV).
 
+## Project file structure
+- `omr_core`: The implementation of **InstantOMR**,
+  - `src`: The main codes of **InstantOMR**.
+  - `examples`:
+    - `omr.rs`: An example of **InstantOMR** for the specific number of threads and message counts.
+    - `omd.rs`: Check that the oblivious message detection is running correctly.
+    - `omr_time_analyze.rs`: Measure the time cost of each stage when **InstantOMR** runs with different numbers of threads and varying message counts.
+    - `omr_time_analyze2.rs`: Measure the time cost of each stage without detecting when **InstantOMR** runs with different numbers of threads and varying message counts. In this way, `omr_time_analyze2.rs` runs much faster than `omr_time_analyze.rs`
+- `omr_core2`: Benchmark of the bootstrapping of the `tfhe-rs`.
+
 ## Install Rust
 
 This project relies on Rust and the nightly toolchain. Installation can be done by following these steps:
