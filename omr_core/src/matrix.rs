@@ -1,3 +1,5 @@
+//! Matrix solvers (Gaussian elimination) for decoding combined payloads.
+
 use algebra::{
     arith::Xgcd,
     modulus::{BarrettModulus, PowOf2Modulus},
@@ -77,6 +79,7 @@ pub fn solve_matrix_mod_256(
     matrix: &mut [Vec<PayloadByteType>],
     payloads: &mut [Payload],
 ) -> Result<Vec<Payload>, OmrError> {
+    // Gaussian elimination (forward) + back substitution (mod 256).
     let num_rows = matrix.len();
     let num_cols = matrix[0].len();
 
@@ -157,11 +160,12 @@ pub fn solve_matrix_mod_256(
 
 const MODULUS_257: BarrettModulus<PayloadByteType> = <BarrettModulus<PayloadByteType>>::new(257);
 
-/// Solves a matrix modulo 256.
+/// Solves a matrix modulo 257.
 pub fn solve_matrix_mod_257(
     matrix: &mut [Vec<PayloadByteType>],
     payloads: &mut [Payload],
 ) -> Result<Vec<Payload>, OmrError> {
+    // Gaussian elimination (forward) + back substitution (mod 257).
     let num_rows = matrix.len();
     let num_cols = matrix[0].len();
 
@@ -242,13 +246,14 @@ pub fn solve_matrix_mod_257(
     Ok(payloads.iter().copied().take(num_cols).collect())
 }
 
-/// Solves a matrix modulo 256.
+/// Solves a matrix modulo `modulus`.
 pub fn solve_matrix<M: RingReduce<PayloadByteType>>(
     matrix: &mut [Vec<PayloadByteType>],
     payloads: &mut [Payload],
     modulus: M,
     modulus_value: PayloadByteType,
 ) -> Result<Vec<Payload>, OmrError> {
+    // Gaussian elimination (forward) + back substitution (mod p).
     let num_rows = matrix.len();
     let num_cols = matrix[0].len();
 

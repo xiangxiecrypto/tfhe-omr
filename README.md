@@ -19,9 +19,17 @@ This work introduces **InstantOMR**, a novel OMR scheme that combines TFHE funct
     - `omr_time_analyze2.rs`: Measure the time cost of each stage while skipping the detection phase when **InstantOMR** runs with different numbers of threads and varying message counts. In this way, `omr_time_analyze2.rs` runs much faster than `omr_time_analyze.rs`.
 - `omr_core2`: Benchmark of the bootstrapping of the `tfhe-rs`.
 
+## Supported platforms
+
+This artifact is tested on:
+- Windows (MSVC toolchain)
+- Ubuntu (20.04/22.04)
+
+macOS has **not** been tested or adapted. It may not run or reproduce results correctly on macOS. If you try on macOS, please run **without** `+nightly` and **without** `--features="nightly"` first; the build may still fail.
+
 ## Install Rust
 
-This project relies on Rust and the nightly toolchain. Installation can be done by following these steps:
+This project builds on stable Rust by default. The nightly toolchain is **optional** and only required if you want AVX-512 acceleration via the `nightly` feature. Installation can be done by following these steps:
 
 1. Install build tools.
    On Windows, please install [Visual Studio C++ Build tools](https://rust-lang.github.io/rustup/installation/windows-msvc.html).
@@ -43,12 +51,12 @@ This project relies on Rust and the nightly toolchain. Installation can be done 
    cargo --version
    ```
 
-4. Install the nightly toolchain:
+4. (Optional) Install the nightly toolchain (only needed for AVX-512 support):
    ```bash
    rustup toolchain install nightly
    ```
 
-5. Verify the nightly toolchain is available:
+5. (Optional) Verify the nightly toolchain is available:
    ```bash
    rustc +nightly --version
    ```
@@ -148,4 +156,4 @@ Note: AVX-512 support requires:
 
 ## Notes
 
-Our benchmark data was obtained through testing on a platform equipped with AVX-512 instructions.
+Our benchmark data was obtained through testing on a platform equipped with AVX-512 instructions. If `+nightly` fails in your environment, please use the stable commands (without `+nightly` and without `--features="nightly"`).

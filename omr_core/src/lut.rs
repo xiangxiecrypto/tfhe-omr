@@ -1,3 +1,5 @@
+//! LUT construction helpers for TFHE functional bootstrapping.
+
 use algebra::{polynomial::FieldPolynomial, Field};
 use itertools::Itertools;
 

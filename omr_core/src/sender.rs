@@ -1,10 +1,12 @@
+//! Sender-side clue generation (encrypt clue strings).
+
 use algebra::utils::Size;
 use fhe_core::CmLweCiphertext;
 use rand::{CryptoRng, Rng};
 
 use crate::{ClueKey, ClueValue};
 
-/// The sender.
+/// Sender-side helper that produces encrypted clue strings.
 pub struct Sender {
     clue_key: ClueKey,
     clue_count: usize,

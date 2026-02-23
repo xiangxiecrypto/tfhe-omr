@@ -1,10 +1,12 @@
+//! Clue key for sender-side clue encryption.
+
 use algebra::utils::Size;
 use fhe_core::{CmLweCiphertext, LweParameters, LwePublicKeyRlweMode};
 use rand::{CryptoRng, Rng};
 
 use crate::{ClueModulus, ClueValue};
 
-/// The clue key.
+/// RLWE public key used to encrypt the clue string.
 pub struct ClueKey {
     key: LwePublicKeyRlweMode<ClueValue>,
     params: LweParameters<ClueValue, ClueModulus>,

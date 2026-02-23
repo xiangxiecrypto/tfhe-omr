@@ -1,9 +1,12 @@
+//! Retrieval layout parameters (segments/buckets/slots).
+
 use algebra::{
     integer::{AsInto, Bits, UnsignedInteger},
     Field, NttField,
 };
 use rand_distr::Uniform;
 
+/// Parameters for encoding indices and payloads in RLWE ciphertexts.
 #[derive(Clone, Copy)]
 pub struct RetrievalParams<F: NttField> {
     /// Output message modulus and the index modulus.

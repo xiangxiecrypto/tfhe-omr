@@ -1,9 +1,11 @@
+//! Detection key material for the detector (two bootstrapping layers + trace).
+
 use algebra::{modulus::ShoupFactor, utils::Size, Field};
 use fhe_core::{BlindRotationKey, NonPowOf2LweKeySwitchingKey, TraceKey};
 
 use crate::{ClueModulus, FirstLevelField, OmrParameters, SecondLevelField};
 
-/// tfhe omr's detection key.
+/// Contains BSK1, KSK (z1 -> s2), BSK2, and TraceKey for retrieval.
 pub struct DetectionKey {
     first_level_blind_rotation_key: BlindRotationKey<FirstLevelField>,
     first_level_key_switching_key: NonPowOf2LweKeySwitchingKey<<FirstLevelField as Field>::ValueT>,
