@@ -1,3 +1,5 @@
+//! Secret-key pack and key derivation helpers for two-layer InstantOMR.
+
 use std::sync::Arc;
 
 use algebra::{modulus::ShoupFactor, ntt::NttTable, utils::Size, Field, NttField};
@@ -14,11 +16,9 @@ use crate::{
 
 use super::{ClueKey, DetectionKey};
 
-/// tfhe omr's secret keys pack.
+/// Bundles two-layer LWE/RLWE secrets (s1,s2,z1,z2) and derived helpers.
 ///
-/// This struct contains the LWE secret key,
-/// ring secret key, ntt version ring secret key
-/// and parameters.
+/// Also stores NTT tables/keys and the chosen parameters.
 #[derive(Clone)]
 pub struct SecretKeyPack {
     /// clue secret key

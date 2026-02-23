@@ -1,3 +1,5 @@
+//! Key generation wrappers for OMR keys.
+
 use crate::OmrParameters;
 
 mod clue;
@@ -10,7 +12,7 @@ pub use clue::ClueKey;
 pub use detection::DetectionKey;
 pub use secret::SecretKeyPack;
 
-/// Struct of key generation.
+/// Key generation entry point.
 pub struct KeyGen;
 
 impl KeyGen {

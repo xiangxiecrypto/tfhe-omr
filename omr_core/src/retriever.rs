@@ -1,3 +1,5 @@
+//! Retriever-side decoding of digests into indices and payloads.
+
 use std::{collections::HashSet, sync::Arc};
 
 use algebra::{
@@ -20,6 +22,7 @@ use crate::{
     OmrError, Payload, RetrievalParams, PAYLOAD_LENGTH,
 };
 
+/// Client-side decoder for digests produced by the detector.
 #[derive(Clone)]
 pub struct Retriever<F: NttField> {
     params: RetrievalParams<F>,
@@ -58,6 +61,8 @@ impl<F: NttField> Retriever<F> {
 
     #[allow(clippy::result_unit_err)]
     pub fn decode_pertinent_indices(&mut self, encoded_indices: &NttRlwe<F>) -> Result<usize, ()> {
+        // Decode index digest into a set of pertinent indices.
+        // Power-of-two moduli use bit unpacking; otherwise use base-(index_modulus).
         let slots_per_bucket = self.params.slots_per_bucket();
         let slots_per_segment = self.params.slots_per_segment();
         let index_modulus = self.params.index_modulus();
@@ -186,6 +191,8 @@ impl<F: NttField> Retriever<F> {
         encode_pertinent_payloads: &[NttRlweCiphertext<F>],
         seed: [u8; 32],
     ) -> Result<(Vec<usize>, Vec<Payload>), OmrError> {
+        // Full digest decode: indices first, then payloads.
+        // Payloads are recovered by solving a small linear system per combination set.
         let combination_count = self.params.combination_count();
         let all_payloads_count = self.params.all_payloads_count();
         let p: PayloadByteType = self.params.index_modulus().as_into();
@@ -309,6 +316,8 @@ impl<F: NttField> Retriever<F> {
     // }
 
     pub fn decode_combined_payloads(&self, combinations: &[NttRlweCiphertext<F>]) -> Vec<Payload> {
+        // Decode linearly combined payloads into raw payloads.
+        // Inverse NTT + modulus rounding yields payload bytes.
         let combination_count = self.params.combination_count();
         let cmb_count_per_cipher = self.params.cmb_count_per_cipher();
 
@@ -377,6 +386,7 @@ pub fn sub_mul<F: NttField>(
         );
 }
 
+/// Tracks decoded-noise statistics for evaluation/debugging.
 pub struct NoiseSigmaInfo<F: Field> {
     sigma: f64,
     one_sigma: <F as Field>::ValueT,

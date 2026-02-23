@@ -1,3 +1,5 @@
+//! Parameter types and defaults for two-layer InstantOMR.
+
 use algebra::{
     decompose::NonPowOf2ApproxSignedBasis, modulus::PowOf2Modulus, random::DiscreteGaussian,
     reduce::ModulusValue, Field, NttField, U32FieldEval, U64FieldEval,
@@ -19,7 +21,7 @@ pub type InterLweModulus = PowOf2Modulus<InterLweValue>;
 pub type SecondLevelField = U64FieldEval<1125899906826241>;
 pub type OutputValue = <SecondLevelField as Field>::ValueT;
 
-/// Parameters for omr.
+/// Cryptographic parameters for two-layer bootstrapping and RLWE encoding.
 #[derive(Clone)]
 pub struct OmrParameters {
     clue_params: LweParameters<ClueValue, ClueModulus>,

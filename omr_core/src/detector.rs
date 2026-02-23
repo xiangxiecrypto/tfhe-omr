@@ -1,3 +1,5 @@
+//! Detector pipeline: two-layer TFHE bootstrapping + homomorphic trace.
+
 use std::{
     ops::Add,
     time::{Duration, Instant},
@@ -29,7 +31,7 @@ use crate::{
     OmrParameters, Payload, RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
 };
 
-/// The detector for OMR.
+/// Server-side detector that turns clues into a digest via bootstrapping + RLWE encoding.
 pub struct Detector {
     detection_key: DetectionKey,
     first_level_lut: FieldPolynomial<FirstLevelField>,
@@ -223,6 +225,8 @@ impl Detector {
         retrieval_params: RetrievalParams<SecondLevelField>,
         pertinency_vector: &[NttRlweCiphertext<SecondLevelField>],
     ) -> NttRlwe<SecondLevelField> {
+        // Step 3c: RLWE-encode the indices of pertinent messages.
+        // Encode each index into slots using base-(index_modulus) digits or bit chunks.
         const CHUNK_SIZE: usize = 2048;
         let ntt_table = self
             .detection_key
@@ -345,6 +349,8 @@ impl Detector {
     where
         R: Rng + SeedableRng + CryptoRng,
     {
+        // Step 3c: RLWE-encode payloads weighted by pertinency.
+        // Sample random weights and pack weighted payloads into RLWE slots.
         const CHUNK_SIZE: usize = 2048;
 
         let payloads_count = payloads.len();
@@ -447,7 +453,7 @@ impl Detector {
     }
 }
 
-/// init lut for first level bootstrapping.
+/// LUT for first-layer functional bootstrapping (homomorphic decryption).
 pub fn first_level_lut(
     rlwe_dimension: usize,
     input_plain_modulus: usize,
@@ -469,7 +475,7 @@ pub fn first_level_lut(
     .negacyclic_lut(rlwe_dimension, log_plain_modulus)
 }
 
-/// init lut for second level bootstrapping.
+/// LUT for second-layer functional bootstrapping (homomorphic checking).
 pub fn second_level_lut(
     rlwe_dimension: usize,
     clue_count: usize,
@@ -500,6 +506,7 @@ fn extract_clues_and_modulus_switch(
     clues: &CmLweCiphertext<ClueValue>,
     params: &OmrParameters,
 ) -> Vec<LweCiphertext<ClueValue>> {
+    // Step 3a prep: extract LWE clues and switch modulus for first-layer bootstrapping.
     let clue_count = params.clue_count();
     assert_eq!(clue_count, clues.msg_count(), "Invalid clue count.");
 
@@ -530,6 +537,8 @@ fn first_level_bootstrapping(
     lut: &FieldPolynomial<FirstLevelField>,
     params: &OmrParameters,
 ) -> LweCiphertext<InterLweValue> {
+    // Step 3a: first-layer functional bootstrapping (homomorphic decryption).
+    // Aggregate clue ciphertexts and switch to the intermediate LWE key.
     let first_level_ring_dimension = params.first_level_ring_dimension();
 
     // First level blind rotation and sum
@@ -593,6 +602,8 @@ fn second_level_bootstrapping(
     lut: &FieldPolynomial<SecondLevelField>,
     params: &OmrParameters,
 ) -> RlweCiphertext<SecondLevelField> {
+    // Step 3b: second-layer functional bootstrapping (homomorphic checking).
+    // Normalize modulus, then apply the second-layer blind rotation.
     let intermediate_cipher_modulus_value = params.intermediate_lwe_params().cipher_modulus_value;
     let second_level_ring_dimension = params.second_level_ring_dimension();
 
@@ -618,6 +629,8 @@ fn hom_trace(
     n_inv: ShoupFactor<<SecondLevelField as Field>::ValueT>,
     ntt_table: &<SecondLevelField as NttField>::Table,
 ) -> NttRlweCiphertext<SecondLevelField> {
+    // Step 3b: homomorphic trace to keep the constant term.
+    // Trace returns a constant-term ciphertext used for encoding.
     // Multiply by `n_inv`
     ciphertext.a_mut().mul_shoup_scalar_assign(n_inv);
     ciphertext.b_mut().mul_shoup_scalar_assign(n_inv);

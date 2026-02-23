@@ -1,10 +1,15 @@
+//! Payload representation and arithmetic helpers.
+
 use algebra::reduce::RingReduce;
 use itertools::izip;
 use rand::RngCore;
 
+/// Number of bytes per payload (as used in the paper's experiments).
 pub const PAYLOAD_LENGTH: usize = 612;
+/// Element type used in payload arithmetic.
 pub type PayloadByteType = u16;
 
+/// Fixed-length payload used by InstantOMR.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Payload(pub [PayloadByteType; PAYLOAD_LENGTH]);
 
