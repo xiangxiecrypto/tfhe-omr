@@ -7,7 +7,10 @@ use clap::Parser;
 use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::NttRlwe;
-use omr_core::{Detector, KeyGen, OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender};
+use omr_core::{
+    DetectNoiseInfo, DetectNoiseStats, Detector, KeyGen, OmrParameters, Payload, SecondLevelField,
+    SecretKeyPack, Sender,
+};
 use rand::{
     rngs::{StdRng, ThreadRng},
     seq::SliceRandom,
@@ -157,14 +160,33 @@ fn omr(
 
     debug!("Detecting...");
     let start = Instant::now();
-    let pertinency_vector: Vec<NttRlwe<SecondLevelField>> = clues_list
+    let detected: Vec<(NttRlwe<SecondLevelField>, DetectNoiseInfo)> = clues_list
         .par_iter()
         .progress_with(pb.clone())
-        .map(|clues| detector.detect(clues))
+        .map(|clues| detector.detect_with_noise_info(clues, secret_key_pack))
         .collect();
     pb.finish();
     let end = Instant::now();
     debug!("Detect done");
+
+    let mut noise_info = DetectNoiseInfo::default();
+    let mut pertinency_vector = Vec::with_capacity(detected.len());
+    detected.into_iter().for_each(|(ciphertext, info)| {
+        pertinency_vector.push(ciphertext);
+        noise_info.merge(info);
+    });
+
+    log_noise_growth(
+        "constant coefficient",
+        &noise_info.after_second_level_bootstrapping.constant,
+        &noise_info.after_hom_trace.constant,
+    );
+    log_noise_growth(
+        "other coefficients",
+        &noise_info.after_second_level_bootstrapping.other,
+        &noise_info.after_hom_trace.other,
+    );
+
     info!("detect time: {:?}", end - start);
     info!(
         "detect time per message: {:?}",
@@ -232,4 +254,78 @@ fn omr(
     }
 
     info!("All done");
+}
+
+fn log_noise_growth(label: &str, before: &DetectNoiseStats, after: &DetectNoiseStats) {
+    info!(
+        "hom_trace noise {label}: count={}, mean {:.3e} -> {:.3e}, sigma {:.3e} ({:.3} bits) -> {:.3e} ({:.3} bits), sigma growth {:.3} bits, max_abs {:.3e} ({:.3} bits) -> {:.3e} ({:.3} bits), max_abs growth {:.3} bits, max_centered {:.3e} ({:.3} sigma) -> {:.3e} ({:.3} sigma)",
+        after.count,
+        before.mean(),
+        after.mean(),
+        before.sigma(),
+        before.sigma_bits(),
+        after.sigma(),
+        after.sigma_bits(),
+        growth_bits(before.sigma(), after.sigma()),
+        before.max_abs,
+        before.max_abs_bits(),
+        after.max_abs,
+        after.max_abs_bits(),
+        growth_bits(before.max_abs, after.max_abs),
+        before.max_centered_abs(),
+        before.max_centered_sigma(),
+        after.max_centered_abs(),
+        after.max_centered_sigma(),
+    );
+    log_gaussian_tail(label, "before hom_trace", before);
+    log_gaussian_tail(label, "after hom_trace", after);
+}
+
+fn growth_bits(before: f64, after: f64) -> f64 {
+    match (before > 0.0, after > 0.0) {
+        (true, true) => after.log2() - before.log2(),
+        (false, true) => f64::INFINITY,
+        (true, false) => f64::NEG_INFINITY,
+        (false, false) => 0.0,
+    }
+}
+
+fn log_gaussian_tail(label: &str, stage: &str, stats: &DetectNoiseStats) {
+    let tail = |sigma_multiplier: f64| {
+        let count = stats.tail_count(sigma_multiplier);
+        let ratio = stats.tail_ratio(sigma_multiplier);
+        let expected = stats.count as f64 * gaussian_two_sided_tail_probability(sigma_multiplier);
+        (count, ratio, expected)
+    };
+
+    let (tail_3_count, tail_3_ratio, tail_3_expected) = tail(3.0);
+    let (tail_4_count, tail_4_ratio, tail_4_expected) = tail(4.0);
+    let (tail_5_count, tail_5_ratio, tail_5_expected) = tail(5.0);
+    let (tail_6_count, tail_6_ratio, tail_6_expected) = tail(6.0);
+
+    info!(
+        "gaussian tail {label} {stage}: >3sigma {} ({:.3e}, exp {:.3e}), >4sigma {} ({:.3e}, exp {:.3e}), >5sigma {} ({:.3e}, exp {:.3e}), >6sigma {} ({:.3e}, exp {:.3e})",
+        tail_3_count,
+        tail_3_ratio,
+        tail_3_expected,
+        tail_4_count,
+        tail_4_ratio,
+        tail_4_expected,
+        tail_5_count,
+        tail_5_ratio,
+        tail_5_expected,
+        tail_6_count,
+        tail_6_ratio,
+        tail_6_expected,
+    );
+}
+
+fn gaussian_two_sided_tail_probability(sigma_multiplier: f64) -> f64 {
+    match sigma_multiplier {
+        x if (x - 3.0).abs() < f64::EPSILON => 2.699_796_063_260_186_6e-3,
+        x if (x - 4.0).abs() < f64::EPSILON => 6.334_248_366_623_996e-5,
+        x if (x - 5.0).abs() < f64::EPSILON => 5.733_031_437_583_866e-7,
+        x if (x - 6.0).abs() < f64::EPSILON => 1.973_175_290_075_402_4e-9,
+        _ => f64::NAN,
+    }
 }

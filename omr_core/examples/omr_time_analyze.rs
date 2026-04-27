@@ -75,7 +75,7 @@ fn main() {
 
     // for all_payloads_count in (0..=16).rev().map(|i| 1 << i) {
     for all_payloads_count in (0..=8).rev().map(|i| 1 << i) {
-    // for all_payloads_count in [256, 512] {
+        // for all_payloads_count in [256, 512] {
         let pertinent_count = get_pertinent_count(all_payloads_count);
         let pertinent_tag = generate_pertinent_tag(all_payloads_count, pertinent_count);
         let pertinent_set = generate_pertinent_set(pertinent_tag.as_slice());
