@@ -24,7 +24,9 @@ pub use error::OmrError;
 pub use parameters::*;
 pub use payload::{Payload, PAYLOAD_LENGTH};
 
-pub use lut::LookUpTable;
+pub use lut::{
+    negacyclic_lut_from_fn, negacyclic_lut_from_sparse_values, negacyclic_lut_from_values,
+};
 pub use noise::{
     format_noise_growth, format_noise_snapshot, DetectNoiseInfo, NoiseByCoefficient, NoiseStats,
 };

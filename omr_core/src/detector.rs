@@ -28,10 +28,11 @@ use fhe_core::{
 use lattice::NttRlwe;
 
 use crate::key_gen::SecretKeyPack;
+use crate::lut::negacyclic_lut_from_sparse_values;
 use crate::{
     payload::PayloadByteType, ClueValue, DetectNoiseInfo, DetectionKey, FirstLevelField,
-    InterLweValue, LookUpTable, NoiseByCoefficient, NoiseStats, OmrParameters, OutputValue,
-    Payload, RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
+    InterLweValue, NoiseByCoefficient, NoiseStats, OmrParameters, OutputValue, Payload,
+    RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
 };
 
 /// Server-side detector that turns clues into a digest via bootstrapping + RLWE encoding.
@@ -619,14 +620,12 @@ pub fn first_level_lut(
         round_div(q as u128, output_plain_modulus as u128) as <FirstLevelField as Field>::ValueT;
     let scale_minus_one = q - scale_one;
 
-    [
-        scale_one,
+    negacyclic_lut_from_sparse_values::<FirstLevelField>(
+        rlwe_dimension,
+        input_plain_modulus,
         FirstLevelField::ZERO,
-        FirstLevelField::ZERO,
-        FirstLevelField::ZERO,
-        scale_minus_one,
-    ]
-    .negacyclic_lut_for_plain_modulus(rlwe_dimension, input_plain_modulus)
+        &[(0, scale_one), (input_plain_modulus / 2, scale_minus_one)],
+    )
 }
 
 /// LUT for second-layer functional bootstrapping (homomorphic checking).
@@ -638,11 +637,12 @@ pub fn second_level_lut(
 ) -> FieldPolynomial<SecondLevelField> {
     let scale_one = output_scale_one(output_plain_modulus as OutputValue);
 
-    let mut data = vec![SecondLevelField::ZERO; input_plain_modulus];
-    data[clue_count] = scale_one;
-
-    data.as_slice()
-        .negacyclic_lut_for_plain_modulus(rlwe_dimension, input_plain_modulus)
+    negacyclic_lut_from_sparse_values::<SecondLevelField>(
+        rlwe_dimension,
+        input_plain_modulus,
+        SecondLevelField::ZERO,
+        &[(clue_count, scale_one)],
+    )
 }
 
 fn decrypt_second_level_rlwe(
@@ -943,4 +943,61 @@ fn hom_trace(
     ciphertext.b_mut().mul_shoup_scalar_assign(n_inv);
     // Homomorphic Trace
     trace_key.trace(&ciphertext).to_ntt_rlwe(ntt_table)
+}
+
+#[cfg(test)]
+mod tests {
+    use itertools::Itertools;
+
+    use super::*;
+
+    #[test]
+    fn first_level_lut_matches_previous_dense_implementation() {
+        let params = OmrParameters::new();
+        let rlwe_dimension = params.first_level_ring_dimension();
+        let input_plain_modulus = params.clue_plain_modulus_value() as usize;
+        let output_plain_modulus = params.intermediate_lwe_plain_modulus_value() as usize;
+
+        assert_eq!(
+            input_plain_modulus, 8,
+            "previous first_level_lut used a fixed 5-value table for clue modulus 8"
+        );
+
+        let current = first_level_lut(rlwe_dimension, input_plain_modulus, output_plain_modulus);
+        let previous =
+            previous_first_level_lut(rlwe_dimension, input_plain_modulus, output_plain_modulus);
+
+        assert_eq!(current.as_slice(), previous.as_slice());
+    }
+
+    fn previous_first_level_lut(
+        rlwe_dimension: usize,
+        input_plain_modulus: usize,
+        output_plain_modulus: usize,
+    ) -> FieldPolynomial<FirstLevelField> {
+        let q = <FirstLevelField as Field>::MODULUS_VALUE;
+        let scale_one = round_div(q as u128, output_plain_modulus as u128)
+            as <FirstLevelField as Field>::ValueT;
+        let scale_minus_one = q - scale_one;
+        let values = [
+            scale_one,
+            FirstLevelField::ZERO,
+            FirstLevelField::ZERO,
+            FirstLevelField::ZERO,
+            scale_minus_one,
+        ];
+
+        let mut lut = <FieldPolynomial<FirstLevelField>>::zero(rlwe_dimension);
+
+        let half_delta = rlwe_dimension >> input_plain_modulus.trailing_zeros();
+
+        lut.as_mut_slice()
+            .chunks_mut(half_delta)
+            .zip(values.iter().interleave(values[1..].iter()))
+            .for_each(|(chunk, &value)| {
+                chunk.fill(value);
+            });
+
+        lut
+    }
 }
