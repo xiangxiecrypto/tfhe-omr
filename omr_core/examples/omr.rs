@@ -9,8 +9,8 @@ use fhe_core::CmLweCiphertext;
 use indicatif::{ParallelProgressIterator, ProgressBar, ProgressStyle};
 use lattice::NttRlwe;
 use omr_core::{
-    DetectNoiseInfo, DetectNoiseStats, Detector, InterLweValue, KeyGen, OmrParameters, Payload,
-    SecondLevelField, SecretKeyPack, Sender,
+    format_noise_growth, format_noise_snapshot, DetectNoiseInfo, Detector, InterLweValue, KeyGen,
+    OmrParameters, Payload, SecondLevelField, SecretKeyPack, Sender,
 };
 use rand::{
     rngs::{StdRng, ThreadRng},
@@ -178,21 +178,36 @@ fn omr(
     });
 
     let intermediate_lwe_params = detector.detection_key().params().intermediate_lwe_params();
-    log_single_stage_noise(
-        "first_level_bootstrapping intermediate",
-        &noise_info.after_first_level_bootstrapping,
-        modulus_value_as_f64(intermediate_lwe_params.cipher_modulus_value),
-        intermediate_lwe_params.plain_modulus_value as f64,
+    info!(
+        "{}",
+        format_noise_snapshot(
+            "first_level_bootstrapping intermediate",
+            &noise_info.after_first_level_bootstrapping,
+            Some(
+                modulus_value_as_f64(intermediate_lwe_params.cipher_modulus_value)
+                    / (2.0 * intermediate_lwe_params.plain_modulus_value as f64),
+            ),
+        )
     );
-    log_noise_growth(
-        "constant coefficient",
-        &noise_info.after_second_level_bootstrapping.constant,
-        &noise_info.after_hom_trace.constant,
+    info!(
+        "{}",
+        format_noise_growth(
+            "hom_trace / constant coefficient",
+            "before",
+            "after",
+            &noise_info.after_second_level_bootstrapping.constant,
+            &noise_info.after_hom_trace.constant,
+        )
     );
-    log_noise_growth(
-        "other coefficients",
-        &noise_info.after_second_level_bootstrapping.other,
-        &noise_info.after_hom_trace.other,
+    info!(
+        "{}",
+        format_noise_growth(
+            "hom_trace / other coefficients",
+            "before",
+            "after",
+            &noise_info.after_second_level_bootstrapping.other,
+            &noise_info.after_hom_trace.other,
+        )
     );
 
     info!("detect time: {:?}", end - start);
@@ -249,10 +264,16 @@ fn omr(
         retrieval_params.cmb_count_per_cipher(),
         secret_key_pack,
     );
-    log_payload_noise(
-        "encode_pertinent_payloads",
-        &payload_noise,
-        retrieval_params.index_modulus(),
+    info!(
+        "{}",
+        format_noise_snapshot(
+            "encode_pertinent_payloads",
+            &payload_noise,
+            Some(
+                <SecondLevelField as Field>::MODULUS_VALUE as f64
+                    / (2.0 * retrieval_params.index_modulus() as f64),
+            ),
+        )
     );
 
     // retriever.test_combine(&indices, &combinations, &payloads, seed);
@@ -277,155 +298,6 @@ fn omr(
     }
 
     info!("All done");
-}
-
-fn log_noise_growth(label: &str, before: &DetectNoiseStats, after: &DetectNoiseStats) {
-    // Printed metrics:
-    // - mean: empirical bias of signed noise. It should be close to zero for centered noise.
-    // - sigma: fitted Gaussian standard deviation sqrt(E[e^2] - E[e]^2).
-    // - sigma bits: log2(sigma), the typical noise scale in coefficient-space bits.
-    // - sigma growth: log2(after_sigma / before_sigma), the bit increase caused by hom_trace.
-    // - max_abs: largest observed |e|, useful for checking the actual decoding margin.
-    // - max_centered: largest |e - mean|, expressed both as a value and as sigma multiples.
-    info!(
-        "hom_trace noise {label}: count={}, mean {:.3e} -> {:.3e}, sigma {:.3e} ({:.3} bits) -> {:.3e} ({:.3} bits), sigma growth {:.3} bits, max_abs {:.3e} ({:.3} bits) -> {:.3e} ({:.3} bits), max_abs growth {:.3} bits, max_centered {:.3e} ({:.3} sigma) -> {:.3e} ({:.3} sigma)",
-        after.count,
-        before.mean(),
-        after.mean(),
-        before.sigma(),
-        before.sigma_bits(),
-        after.sigma(),
-        after.sigma_bits(),
-        growth_bits(before.sigma(), after.sigma()),
-        before.max_abs,
-        before.max_abs_bits(),
-        after.max_abs,
-        after.max_abs_bits(),
-        growth_bits(before.max_abs, after.max_abs),
-        before.max_centered_abs(),
-        before.max_centered_sigma(),
-        after.max_centered_abs(),
-        after.max_centered_sigma(),
-    );
-    log_gaussian_tail(label, "before hom_trace", before);
-    log_gaussian_tail(label, "after hom_trace", after);
-}
-
-fn log_payload_noise(label: &str, stats: &DetectNoiseStats, plain_modulus: u64) {
-    // Payload noise is measured only after encode_pertinent_payloads.
-    // The reference value is the true weighted payload sum, not the nearest decoded message.
-    //
-    // decode_bound = q / (2p) is half the spacing between two adjacent plaintext encodings.
-    // If every |e| is below this bound, rounding to the plaintext modulus should decode correctly.
-    //
-    // - sigma margin: log2(decode_bound / sigma), the distance from the fitted sigma to failure.
-    // - max_abs margin: log2(decode_bound / max_abs), the distance from the worst observed sample
-    //   to the decoding boundary.
-    let decode_bound =
-        <SecondLevelField as Field>::MODULUS_VALUE as f64 / (2.0 * plain_modulus as f64);
-    info!(
-        "{label} noise: count={}, mean {:.3e}, sigma {:.3e} ({:.3} bits), max_abs {:.3e} ({:.3} bits), max_centered {:.3e} ({:.3} sigma), sigma margin {:.3} bits, max_abs margin {:.3} bits",
-        stats.count,
-        stats.mean(),
-        stats.sigma(),
-        stats.sigma_bits(),
-        stats.max_abs,
-        stats.max_abs_bits(),
-        stats.max_centered_abs(),
-        stats.max_centered_sigma(),
-        growth_bits(stats.sigma(), decode_bound),
-        growth_bits(stats.max_abs, decode_bound),
-    );
-    log_gaussian_tail(label, "after encode", stats);
-}
-
-fn log_single_stage_noise(
-    label: &str,
-    stats: &DetectNoiseStats,
-    cipher_modulus: f64,
-    plain_modulus: f64,
-) {
-    let decode_bound = cipher_modulus / (2.0 * plain_modulus);
-    info!(
-        "{label} noise: count={}, mean {:.3e}, sigma {:.3e} ({:.3} bits), max_abs {:.3e} ({:.3} bits), max_centered {:.3e} ({:.3} sigma), sigma margin {:.3} bits, max_abs margin {:.3} bits",
-        stats.count,
-        stats.mean(),
-        stats.sigma(),
-        stats.sigma_bits(),
-        stats.max_abs,
-        stats.max_abs_bits(),
-        stats.max_centered_abs(),
-        stats.max_centered_sigma(),
-        growth_bits(stats.sigma(), decode_bound),
-        growth_bits(stats.max_abs, decode_bound),
-    );
-    log_gaussian_tail(label, "after stage", stats);
-}
-
-fn growth_bits(before: f64, after: f64) -> f64 {
-    // Positive means `after` is larger; negative means `after` is smaller.
-    // For margins we call this as growth_bits(noise_or_sigma, decode_bound), so the
-    // result means "how many bits of room remain before the decoding boundary".
-    match (before > 0.0, after > 0.0) {
-        (true, true) => after.log2() - before.log2(),
-        (false, true) => f64::INFINITY,
-        (true, false) => f64::NEG_INFINITY,
-        (false, false) => 0.0,
-    }
-}
-
-fn log_gaussian_tail(label: &str, stage: &str, stats: &DetectNoiseStats) {
-    // Compare observed centered residual tails against an ideal two-sided Gaussian.
-    // Example: >4sigma reports count(|e - mean| > 4*sigma), its empirical ratio,
-    // and the expected count under N(mean, sigma^2) for the same sample count.
-    let sigma_multipliers = [3.0, 4.0, 5.0, 6.0];
-    let tail_counts = stats.tail_counts(sigma_multipliers);
-    let tail = |index: usize| {
-        let count = tail_counts[index];
-        let ratio = if stats.count == 0 {
-            0.0
-        } else {
-            count as f64 / stats.count as f64
-        };
-        let expected =
-            stats.count as f64 * gaussian_two_sided_tail_probability(sigma_multipliers[index]);
-        (count, ratio, expected)
-    };
-
-    let (tail_3_count, tail_3_ratio, tail_3_expected) = tail(0);
-    let (tail_4_count, tail_4_ratio, tail_4_expected) = tail(1);
-    let (tail_5_count, tail_5_ratio, tail_5_expected) = tail(2);
-    let (tail_6_count, tail_6_ratio, tail_6_expected) = tail(3);
-
-    info!(
-        "gaussian tail {label} {stage}: >3sigma {} ({:.3e}, exp {:.3e}), >4sigma {} ({:.3e}, exp {:.3e}), >5sigma {} ({:.3e}, exp {:.3e}), >6sigma {} ({:.3e}, exp {:.3e})",
-        tail_3_count,
-        tail_3_ratio,
-        tail_3_expected,
-        tail_4_count,
-        tail_4_ratio,
-        tail_4_expected,
-        tail_5_count,
-        tail_5_ratio,
-        tail_5_expected,
-        tail_6_count,
-        tail_6_ratio,
-        tail_6_expected,
-    );
-}
-
-/// Returns the ideal two-sided standard-normal tail probability `P(|Z| > k)`.
-///
-/// The caller multiplies this probability by the sample count to estimate how many
-/// samples an ideal Gaussian `N(mean, sigma^2)` would put outside `k*sigma`.
-fn gaussian_two_sided_tail_probability(sigma_multiplier: f64) -> f64 {
-    match sigma_multiplier {
-        x if (x - 3.0).abs() < f64::EPSILON => 2.699_796_063_260_186_6e-3,
-        x if (x - 4.0).abs() < f64::EPSILON => 6.334_248_366_623_996e-5,
-        x if (x - 5.0).abs() < f64::EPSILON => 5.733_031_437_583_866e-7,
-        x if (x - 6.0).abs() < f64::EPSILON => 1.973_175_290_075_402_4e-9,
-        _ => f64::NAN,
-    }
 }
 
 fn modulus_value_as_f64(modulus: ModulusValue<InterLweValue>) -> f64 {

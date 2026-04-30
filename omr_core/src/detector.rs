@@ -29,8 +29,9 @@ use lattice::NttRlwe;
 
 use crate::key_gen::SecretKeyPack;
 use crate::{
-    payload::PayloadByteType, ClueValue, DetectionKey, FirstLevelField, InterLweValue, LookUpTable,
-    OmrParameters, OutputValue, Payload, RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
+    payload::PayloadByteType, ClueValue, DetectNoiseInfo, DetectionKey, FirstLevelField,
+    InterLweValue, LookUpTable, NoiseByCoefficient, NoiseStats, OmrParameters, OutputValue,
+    Payload, RetrievalParams, SecondLevelField, PAYLOAD_LENGTH,
 };
 
 /// Server-side detector that turns clues into a digest via bootstrapping + RLWE encoding.
@@ -58,47 +59,6 @@ pub struct DetectTimeInfo {
     pub total_trace_time: Duration,
 }
 
-/// Aggregates signed noise samples measured after decrypting ciphertext coefficients.
-///
-/// Each recorded sample is a centered modular error:
-/// `decrypted_phase - expected_encoded_value`, mapped into the interval around zero.
-/// Positive and negative signs are preserved so `mean` can reveal bias. The absolute
-/// values are used only for "largest observed error" and Gaussian-tail checks.
-#[derive(Debug, Clone)]
-pub struct DetectNoiseStats {
-    /// Number of recorded coefficient samples.
-    pub count: usize,
-    /// Smallest signed noise sample.
-    pub min: f64,
-    /// Largest signed noise sample.
-    pub max: f64,
-    /// Sum of signed samples, used to compute the empirical mean.
-    pub sum: f64,
-    /// Sum of squared signed samples, used to compute variance/sigma.
-    pub square_sum: f64,
-    /// Largest observed absolute noise `max(|e|)`.
-    ///
-    /// This is useful for checking the actual decoding margin.
-    pub max_abs: f64,
-    /// Raw signed samples retained for centered tail checks `|e - mean| > k*sigma`.
-    samples: Vec<f64>,
-}
-
-/// Noise statistics split by the constant coefficient and all other coefficients.
-#[derive(Debug, Clone, Default)]
-pub struct DetectNoiseByCoefficient {
-    pub constant: DetectNoiseStats,
-    pub other: DetectNoiseStats,
-}
-
-/// Noise observed around the trace boundary during detection.
-#[derive(Debug, Clone, Default)]
-pub struct DetectNoiseInfo {
-    pub after_first_level_bootstrapping: DetectNoiseStats,
-    pub after_second_level_bootstrapping: DetectNoiseByCoefficient,
-    pub after_hom_trace: DetectNoiseByCoefficient,
-}
-
 impl Add<DetectTimeInfoPerMessage> for DetectTimeInfo {
     type Output = Self;
 
@@ -119,242 +79,6 @@ impl DetectTimeInfoPerMessage {
     #[inline]
     pub fn new() -> Self {
         Default::default()
-    }
-}
-
-impl DetectNoiseStats {
-    /// Adds one signed centered noise sample.
-    #[inline]
-    pub fn record(&mut self, noise: f64) {
-        if self.count == 0 {
-            self.min = noise;
-            self.max = noise;
-        } else {
-            self.min = self.min.min(noise);
-            self.max = self.max.max(noise);
-        }
-
-        self.count += 1;
-        self.max_abs = self.max_abs.max(noise.abs());
-
-        self.sum += noise;
-        self.square_sum += noise * noise;
-        self.samples.push(noise);
-    }
-
-    /// Merges another statistics accumulator into this one.
-    #[inline]
-    pub fn merge(&mut self, mut rhs: Self) {
-        if rhs.count == 0 {
-            return;
-        }
-
-        if self.count == 0 {
-            self.min = rhs.min;
-            self.max = rhs.max;
-        } else {
-            self.min = self.min.min(rhs.min);
-            self.max = self.max.max(rhs.max);
-        }
-
-        self.count += rhs.count;
-        self.sum += rhs.sum;
-        self.square_sum += rhs.square_sum;
-        self.max_abs = self.max_abs.max(rhs.max_abs);
-        self.samples.append(&mut rhs.samples);
-    }
-
-    /// Empirical mean `E[e]`.
-    ///
-    /// For well-centered noise this should be close to zero. A large nonzero value
-    /// means the noise distribution has a bias, so RMS alone is not a good sigma estimate.
-    #[inline]
-    pub fn mean(&self) -> f64 {
-        if self.count == 0 {
-            0.0
-        } else {
-            self.sum / self.count as f64
-        }
-    }
-
-    /// Root mean square `sqrt(E[e^2])`.
-    ///
-    /// When the mean is close to zero, RMS is almost the same as sigma. When the mean
-    /// is not close to zero, use [`Self::sigma`] for Gaussian fitting.
-    #[inline]
-    pub fn rms(&self) -> f64 {
-        if self.count == 0 {
-            0.0
-        } else {
-            (self.square_sum / self.count as f64).sqrt()
-        }
-    }
-
-    /// Empirical variance `E[e^2] - E[e]^2`.
-    #[inline]
-    pub fn variance(&self) -> f64 {
-        if self.count == 0 {
-            0.0
-        } else {
-            let mean = self.mean();
-            (self.square_sum / self.count as f64 - mean * mean).max(0.0)
-        }
-    }
-
-    /// Empirical standard deviation used as the fitted Gaussian `sigma`.
-    #[inline]
-    pub fn sigma(&self) -> f64 {
-        self.variance().sqrt()
-    }
-
-    /// Bit size of the absolute mean, i.e. `log2(|mean|)`.
-    #[inline]
-    pub fn mean_bits(&self) -> f64 {
-        noise_bits(self.mean().abs())
-    }
-
-    /// Bit size of RMS, i.e. `log2(rms)`.
-    #[inline]
-    pub fn rms_bits(&self) -> f64 {
-        noise_bits(self.rms())
-    }
-
-    /// Bit size of sigma, i.e. `log2(sigma)`.
-    ///
-    /// This is the "typical noise scale" in bits, not the remaining decoding margin.
-    #[inline]
-    pub fn sigma_bits(&self) -> f64 {
-        noise_bits(self.sigma())
-    }
-
-    /// Bit size of the larger positive signed sample.
-    #[inline]
-    pub fn max_bits(&self) -> f64 {
-        noise_bits(self.max.abs())
-    }
-
-    /// Bit size of the largest observed absolute noise, i.e. `log2(max(|e|))`.
-    #[inline]
-    pub fn max_abs_bits(&self) -> f64 {
-        noise_bits(self.max_abs)
-    }
-
-    /// Largest absolute noise expressed in fitted sigmas: `max(|e|) / sigma`.
-    #[inline]
-    pub fn max_abs_sigma(&self) -> f64 {
-        let sigma = self.sigma();
-        if sigma > 0.0 {
-            self.max_abs / sigma
-        } else if self.max_abs > 0.0 {
-            f64::INFINITY
-        } else {
-            0.0
-        }
-    }
-
-    /// Largest centered residual `max(|e - mean|)`.
-    ///
-    /// This is the value to compare to Gaussian tail predictions.
-    #[inline]
-    pub fn max_centered_abs(&self) -> f64 {
-        let mean = self.mean();
-        self.samples
-            .iter()
-            .map(|&noise| (noise - mean).abs())
-            .fold(0.0, f64::max)
-    }
-
-    /// Largest centered residual expressed in fitted sigmas.
-    #[inline]
-    pub fn max_centered_sigma(&self) -> f64 {
-        let sigma = self.sigma();
-        if sigma > 0.0 {
-            self.max_centered_abs() / sigma
-        } else if self.max_centered_abs() > 0.0 {
-            f64::INFINITY
-        } else {
-            0.0
-        }
-    }
-
-    /// Count of samples outside the two-sided Gaussian-style threshold:
-    /// `|e - mean| > sigma_multiplier * sigma`.
-    #[inline]
-    pub fn tail_count(&self, sigma_multiplier: f64) -> usize {
-        let threshold = self.sigma() * sigma_multiplier;
-        let mean = self.mean();
-        self.samples
-            .iter()
-            .filter(|&&noise| (noise - mean).abs() > threshold)
-            .count()
-    }
-
-    /// Counts several two-sided Gaussian-style tails in one pass over the samples.
-    ///
-    /// For example, passing `[3.0, 4.0, 5.0, 6.0]` returns the counts for
-    /// `|e - mean| > 3*sigma`, `|e - mean| > 4*sigma`, and so on. This avoids
-    /// rescanning the sample vector once per threshold.
-    pub fn tail_counts<const N: usize>(&self, sigma_multipliers: [f64; N]) -> [usize; N] {
-        let mut counts = [0; N];
-        let sigma = self.sigma();
-        let mean = self.mean();
-
-        self.samples.iter().for_each(|&noise| {
-            let centered_abs = (noise - mean).abs();
-            sigma_multipliers.iter().zip(counts.iter_mut()).for_each(
-                |(&sigma_multiplier, count)| {
-                    if centered_abs > sigma_multiplier * sigma {
-                        *count += 1;
-                    }
-                },
-            );
-        });
-
-        counts
-    }
-
-    /// Ratio of samples outside `sigma_multiplier * sigma`.
-    #[inline]
-    pub fn tail_ratio(&self, sigma_multiplier: f64) -> f64 {
-        if self.count == 0 {
-            0.0
-        } else {
-            self.tail_count(sigma_multiplier) as f64 / self.count as f64
-        }
-    }
-}
-
-impl Default for DetectNoiseStats {
-    #[inline]
-    fn default() -> Self {
-        Self {
-            count: 0,
-            min: 0.0,
-            max: 0.0,
-            sum: 0.0,
-            square_sum: 0.0,
-            max_abs: 0.0,
-            samples: Vec::new(),
-        }
-    }
-}
-
-impl DetectNoiseByCoefficient {
-    #[inline]
-    pub fn merge(&mut self, rhs: Self) {
-        self.constant.merge(rhs.constant);
-        self.other.merge(rhs.other);
-    }
-}
-
-impl DetectNoiseInfo {
-    #[inline]
-    pub fn merge(&mut self, rhs: Self) {
-        self.after_first_level_bootstrapping
-            .merge(rhs.after_first_level_bootstrapping);
-        self.after_second_level_bootstrapping
-            .merge(rhs.after_second_level_bootstrapping);
-        self.after_hom_trace.merge(rhs.after_hom_trace);
     }
 }
 
@@ -465,7 +189,7 @@ impl Detector {
             params,
         );
 
-        let mut after_first_level_bootstrapping = DetectNoiseStats::default();
+        let mut after_first_level_bootstrapping = NoiseStats::default();
         if expected_intermediate == params.clue_count() as InterLweValue {
             after_first_level_bootstrapping.record(intermediate_lwe_noise(
                 &intermediate,
@@ -807,6 +531,7 @@ impl Detector {
     /// This intentionally does not round the decrypted value to the nearest plaintext
     /// first: nearest-message rounding can hide decoding failures by choosing the wrong
     /// plaintext as the reference.
+    #[allow(clippy::too_many_arguments)]
     pub fn analyze_encode_pertinent_payloads_noise(
         &self,
         encoded_payloads: &[NttRlweCiphertext<SecondLevelField>],
@@ -816,7 +541,7 @@ impl Detector {
         combination_count: usize,
         cmb_count_per_cipher: usize,
         secret_key_pack: &SecretKeyPack,
-    ) -> DetectNoiseStats {
+    ) -> NoiseStats {
         let params = self.detection_key.params();
         let payloads_count = payloads.len();
         let expected_cipher_count = combination_count.div_ceil(cmb_count_per_cipher);
@@ -831,7 +556,7 @@ impl Detector {
         );
 
         let p = params.output_plain_modulus_value();
-        let p_u64 = p as u64;
+        let p_u64 = p;
         let distr = Uniform::new(0, p as PayloadByteType);
         let mut weights = vec![0; combination_count * payloads_count];
 
@@ -844,7 +569,7 @@ impl Detector {
 
         let second_level_key = secret_key_pack.second_level_ntt_rlwe_secret_key();
         let second_level_ntt_table = secret_key_pack.second_level_ntt_table();
-        let mut stats = DetectNoiseStats::default();
+        let mut stats = NoiseStats::default();
 
         encoded_payloads
             .iter()
@@ -918,15 +643,6 @@ pub fn second_level_lut(
 
     data.as_slice()
         .negacyclic_lut_for_plain_modulus(rlwe_dimension, input_plain_modulus)
-}
-
-#[inline]
-fn noise_bits(noise: f64) -> f64 {
-    if noise > 0.0 {
-        noise.log2()
-    } else {
-        f64::NEG_INFINITY
-    }
 }
 
 fn decrypt_second_level_rlwe(
@@ -1004,8 +720,8 @@ fn intermediate_lwe_noise(
 fn noise_by_coefficient(
     decrypted: &FieldPolynomial<SecondLevelField>,
     plain_modulus: OutputValue,
-) -> DetectNoiseByCoefficient {
-    let mut noise = DetectNoiseByCoefficient::default();
+) -> NoiseByCoefficient {
+    let mut noise = NoiseByCoefficient::default();
 
     if let Some((&constant, other)) = decrypted.as_slice().split_first() {
         noise

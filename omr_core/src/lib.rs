@@ -12,6 +12,7 @@ mod payload;
 
 mod lut;
 pub(crate) mod matrix;
+mod noise;
 
 mod detector;
 mod key_gen;
@@ -24,11 +25,11 @@ pub use parameters::*;
 pub use payload::{Payload, PAYLOAD_LENGTH};
 
 pub use lut::LookUpTable;
-
-pub use detector::{
-    DetectNoiseByCoefficient, DetectNoiseInfo, DetectNoiseStats, DetectTimeInfo,
-    DetectTimeInfoPerMessage, Detector,
+pub use noise::{
+    format_noise_growth, format_noise_snapshot, DetectNoiseInfo, NoiseByCoefficient, NoiseStats,
 };
+
+pub use detector::{DetectTimeInfo, DetectTimeInfoPerMessage, Detector};
 pub use key_gen::{ClueKey, DetectionKey, KeyGen, SecretKeyPack};
 pub use retriever::Retriever;
 pub use sender::Sender;
