@@ -1,10 +1,7 @@
 // cargo +nightly bench --package omr_core --bench two_level_bs --features="nightly"
 // cargo bench --package omr_core --bench two_level_bs
 
-use algebra::{
-    reduce::{ModulusValue, Reduce, ReduceAddAssign},
-    Field,
-};
+use algebra::{reduce::ModulusValue, Field};
 use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
 use fhe_core::{lwe_modulus_switch, lwe_modulus_switch_assign, LweCiphertext, RlweCiphertext};
 use omr_core::{ClueValue, FirstLevelField, InterLweValue, KeyGen, OmrParameters};
@@ -20,7 +17,6 @@ pub fn criterion_benchmark(c: &mut Criterion) {
     let detection_key = detector.detection_key();
 
     let clues = sender.gen_clues(&mut rng);
-    let msg_count = clues.msg_count();
 
     // Extract clues
     let mut clues: Vec<LweCiphertext<ClueValue>> = clues.extract_all(detection_key.clue_modulus());
@@ -80,32 +76,12 @@ pub fn criterion_benchmark(c: &mut Criterion) {
 
     let intermediate_lwe_params = params.intermediate_lwe_params();
     let intermediate_cipher_modulus_value = intermediate_lwe_params.cipher_modulus_value;
-    let intermediate_cipher_modulus = intermediate_lwe_params.cipher_modulus;
-    let intermediate_plain_modulus_value = intermediate_lwe_params.plain_modulus_value;
 
     // Modulus switching
     let mut intermediate = lwe_modulus_switch(
         &intermediate,
         params.first_level_blind_rotation_params().modulus,
         intermediate_cipher_modulus_value,
-    );
-
-    let log_plain_modulus = intermediate_plain_modulus_value.trailing_zeros();
-
-    // Add `msg_count`
-    let scale = (msg_count as InterLweValue) * {
-        match intermediate_cipher_modulus_value {
-            ModulusValue::Native => 1 << (InterLweValue::BITS - log_plain_modulus),
-            ModulusValue::PowerOf2(q) => q >> log_plain_modulus,
-            ModulusValue::Prime(q) | ModulusValue::Others(q) => {
-                let temp = q >> (log_plain_modulus - 1);
-                (temp + 1) >> 1
-            }
-        }
-    };
-    intermediate_cipher_modulus.reduce_add_assign(
-        intermediate.b_mut(),
-        intermediate_cipher_modulus.reduce(scale),
     );
 
     // Modulus switching

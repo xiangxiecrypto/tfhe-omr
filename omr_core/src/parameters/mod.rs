@@ -42,7 +42,7 @@ impl OmrParameters {
             8,
             <PowOf2Modulus<ClueValue>>::new(2048),
             LweSecretKeyType::Binary,
-            0.8293,
+            0.92,
         );
 
         let clue_count = 7;
@@ -57,17 +57,17 @@ impl OmrParameters {
 
         let first_level_key_switching_params = KeySwitchingParameters {
             input_cipher_dimension: 1024,
-            output_cipher_dimension: 670,
+            output_cipher_dimension: 690,
             log_modulus: <FirstLevelField as Field>::ValueT::BITS
                 - first_level_blind_rotation_params.modulus.leading_zeros(),
             log_basis: 1,
-            reverse_length: None,
-            noise_standard_deviation: 2.0329 * (2.0f64.powf(10.0)),
+            reverse_length: Some(13),
+            noise_standard_deviation: 2.9 * (2.0f64.powf(10.0)),
         };
 
         let intermediate_lwe_params = <LweParameters<InterLweValue, InterLweModulus>>::new(
-            670,
-            32,
+            690,
+            30,
             <PowOf2Modulus<InterLweValue>>::new(4096),
             LweSecretKeyType::Binary,
             10.3260,
@@ -77,16 +77,16 @@ impl OmrParameters {
             dimension: 2048,
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
-            noise_standard_deviation: 0.3908,
-            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 7, Some(6)),
+            noise_standard_deviation: 0.52,
+            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 8, Some(5)),
         };
 
         let trace_params = GadgetRlweParameters::<SecondLevelField> {
             dimension: 2048,
             modulus: SecondLevelField::MODULUS_VALUE,
             secret_key_type: RingSecretKeyType::Ternary,
-            noise_standard_deviation: 0.3908,
-            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 2, None),
+            noise_standard_deviation: 0.52,
+            basis: NonPowOf2ApproxSignedBasis::new(SecondLevelField::MODULUS_VALUE, 4, Some(12)),
         };
 
         // let output_plain_modulus_value = 1 << 8;

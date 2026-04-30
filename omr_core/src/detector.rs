@@ -16,7 +16,7 @@ use algebra::{
     modulus::{BarrettModulus, PowOf2Modulus, ShoupFactor},
     ntt::{NttTable, NumberTheoryTransform},
     polynomial::{FieldNttPolynomial, FieldPolynomial},
-    reduce::{ModulusValue, Reduce, ReduceAddAssign},
+    reduce::{ModulusValue, Reduce, ReduceDotProduct, ReduceSub},
     utils::Size,
     Field, NttField,
 };
@@ -58,15 +58,29 @@ pub struct DetectTimeInfo {
     pub total_trace_time: Duration,
 }
 
-/// Noise statistics for a set of decrypted coefficients.
+/// Aggregates signed noise samples measured after decrypting ciphertext coefficients.
+///
+/// Each recorded sample is a centered modular error:
+/// `decrypted_phase - expected_encoded_value`, mapped into the interval around zero.
+/// Positive and negative signs are preserved so `mean` can reveal bias. The absolute
+/// values are used only for "largest observed error" and Gaussian-tail checks.
 #[derive(Debug, Clone)]
 pub struct DetectNoiseStats {
+    /// Number of recorded coefficient samples.
     pub count: usize,
+    /// Smallest signed noise sample.
     pub min: f64,
+    /// Largest signed noise sample.
     pub max: f64,
+    /// Sum of signed samples, used to compute the empirical mean.
     pub sum: f64,
+    /// Sum of squared signed samples, used to compute variance/sigma.
     pub square_sum: f64,
+    /// Largest observed absolute noise `max(|e|)`.
+    ///
+    /// This is useful for checking the actual decoding margin.
     pub max_abs: f64,
+    /// Raw signed samples retained for centered tail checks `|e - mean| > k*sigma`.
     samples: Vec<f64>,
 }
 
@@ -80,6 +94,7 @@ pub struct DetectNoiseByCoefficient {
 /// Noise observed around the trace boundary during detection.
 #[derive(Debug, Clone, Default)]
 pub struct DetectNoiseInfo {
+    pub after_first_level_bootstrapping: DetectNoiseStats,
     pub after_second_level_bootstrapping: DetectNoiseByCoefficient,
     pub after_hom_trace: DetectNoiseByCoefficient,
 }
@@ -108,6 +123,7 @@ impl DetectTimeInfoPerMessage {
 }
 
 impl DetectNoiseStats {
+    /// Adds one signed centered noise sample.
     #[inline]
     pub fn record(&mut self, noise: f64) {
         if self.count == 0 {
@@ -126,6 +142,7 @@ impl DetectNoiseStats {
         self.samples.push(noise);
     }
 
+    /// Merges another statistics accumulator into this one.
     #[inline]
     pub fn merge(&mut self, mut rhs: Self) {
         if rhs.count == 0 {
@@ -147,6 +164,10 @@ impl DetectNoiseStats {
         self.samples.append(&mut rhs.samples);
     }
 
+    /// Empirical mean `E[e]`.
+    ///
+    /// For well-centered noise this should be close to zero. A large nonzero value
+    /// means the noise distribution has a bias, so RMS alone is not a good sigma estimate.
     #[inline]
     pub fn mean(&self) -> f64 {
         if self.count == 0 {
@@ -156,6 +177,10 @@ impl DetectNoiseStats {
         }
     }
 
+    /// Root mean square `sqrt(E[e^2])`.
+    ///
+    /// When the mean is close to zero, RMS is almost the same as sigma. When the mean
+    /// is not close to zero, use [`Self::sigma`] for Gaussian fitting.
     #[inline]
     pub fn rms(&self) -> f64 {
         if self.count == 0 {
@@ -165,45 +190,56 @@ impl DetectNoiseStats {
         }
     }
 
+    /// Empirical variance `E[e^2] - E[e]^2`.
     #[inline]
     pub fn variance(&self) -> f64 {
         if self.count == 0 {
             0.0
         } else {
-            (self.square_sum / self.count as f64 - self.mean() * self.mean()).max(0.0)
+            let mean = self.mean();
+            (self.square_sum / self.count as f64 - mean * mean).max(0.0)
         }
     }
 
+    /// Empirical standard deviation used as the fitted Gaussian `sigma`.
     #[inline]
     pub fn sigma(&self) -> f64 {
         self.variance().sqrt()
     }
 
+    /// Bit size of the absolute mean, i.e. `log2(|mean|)`.
     #[inline]
     pub fn mean_bits(&self) -> f64 {
         noise_bits(self.mean().abs())
     }
 
+    /// Bit size of RMS, i.e. `log2(rms)`.
     #[inline]
     pub fn rms_bits(&self) -> f64 {
         noise_bits(self.rms())
     }
 
+    /// Bit size of sigma, i.e. `log2(sigma)`.
+    ///
+    /// This is the "typical noise scale" in bits, not the remaining decoding margin.
     #[inline]
     pub fn sigma_bits(&self) -> f64 {
         noise_bits(self.sigma())
     }
 
+    /// Bit size of the larger positive signed sample.
     #[inline]
     pub fn max_bits(&self) -> f64 {
         noise_bits(self.max.abs())
     }
 
+    /// Bit size of the largest observed absolute noise, i.e. `log2(max(|e|))`.
     #[inline]
     pub fn max_abs_bits(&self) -> f64 {
         noise_bits(self.max_abs)
     }
 
+    /// Largest absolute noise expressed in fitted sigmas: `max(|e|) / sigma`.
     #[inline]
     pub fn max_abs_sigma(&self) -> f64 {
         let sigma = self.sigma();
@@ -216,6 +252,9 @@ impl DetectNoiseStats {
         }
     }
 
+    /// Largest centered residual `max(|e - mean|)`.
+    ///
+    /// This is the value to compare to Gaussian tail predictions.
     #[inline]
     pub fn max_centered_abs(&self) -> f64 {
         let mean = self.mean();
@@ -225,6 +264,7 @@ impl DetectNoiseStats {
             .fold(0.0, f64::max)
     }
 
+    /// Largest centered residual expressed in fitted sigmas.
     #[inline]
     pub fn max_centered_sigma(&self) -> f64 {
         let sigma = self.sigma();
@@ -237,6 +277,8 @@ impl DetectNoiseStats {
         }
     }
 
+    /// Count of samples outside the two-sided Gaussian-style threshold:
+    /// `|e - mean| > sigma_multiplier * sigma`.
     #[inline]
     pub fn tail_count(&self, sigma_multiplier: f64) -> usize {
         let threshold = self.sigma() * sigma_multiplier;
@@ -247,6 +289,31 @@ impl DetectNoiseStats {
             .count()
     }
 
+    /// Counts several two-sided Gaussian-style tails in one pass over the samples.
+    ///
+    /// For example, passing `[3.0, 4.0, 5.0, 6.0]` returns the counts for
+    /// `|e - mean| > 3*sigma`, `|e - mean| > 4*sigma`, and so on. This avoids
+    /// rescanning the sample vector once per threshold.
+    pub fn tail_counts<const N: usize>(&self, sigma_multipliers: [f64; N]) -> [usize; N] {
+        let mut counts = [0; N];
+        let sigma = self.sigma();
+        let mean = self.mean();
+
+        self.samples.iter().for_each(|&noise| {
+            let centered_abs = (noise - mean).abs();
+            sigma_multipliers.iter().zip(counts.iter_mut()).for_each(
+                |(&sigma_multiplier, count)| {
+                    if centered_abs > sigma_multiplier * sigma {
+                        *count += 1;
+                    }
+                },
+            );
+        });
+
+        counts
+    }
+
+    /// Ratio of samples outside `sigma_multiplier * sigma`.
     #[inline]
     pub fn tail_ratio(&self, sigma_multiplier: f64) -> f64 {
         if self.count == 0 {
@@ -283,6 +350,8 @@ impl DetectNoiseByCoefficient {
 impl DetectNoiseInfo {
     #[inline]
     pub fn merge(&mut self, rhs: Self) {
+        self.after_first_level_bootstrapping
+            .merge(rhs.after_first_level_bootstrapping);
         self.after_second_level_bootstrapping
             .merge(rhs.after_second_level_bootstrapping);
         self.after_hom_trace.merge(rhs.after_hom_trace);
@@ -382,6 +451,7 @@ impl Detector {
         secret_key_pack: &SecretKeyPack,
     ) -> (NttRlweCiphertext<SecondLevelField>, DetectNoiseInfo) {
         let params = self.detection_key.params();
+        let expected_intermediate = expected_intermediate_plaintext(clues, secret_key_pack, params);
         let second_level_key = secret_key_pack.second_level_ntt_rlwe_secret_key();
         let second_level_ntt_table = secret_key_pack.second_level_ntt_table();
 
@@ -394,6 +464,16 @@ impl Detector {
             &self.first_level_lut,
             params,
         );
+
+        let mut after_first_level_bootstrapping = DetectNoiseStats::default();
+        if expected_intermediate == params.clue_count() as InterLweValue {
+            after_first_level_bootstrapping.record(intermediate_lwe_noise(
+                &intermediate,
+                expected_intermediate,
+                secret_key_pack,
+                params,
+            ));
+        }
 
         let ciphertext = second_level_bootstrapping(
             intermediate,
@@ -424,6 +504,7 @@ impl Detector {
         (
             result,
             DetectNoiseInfo {
+                after_first_level_bootstrapping,
                 after_second_level_bootstrapping,
                 after_hom_trace,
             },
@@ -716,6 +797,90 @@ impl Detector {
 
         combinations
     }
+
+    /// Analyzes noise in ciphertexts returned by [`Self::encode_pertinent_payloads`].
+    ///
+    /// This only measures noise after payload encoding. It rebuilds the true expected
+    /// weighted payload values from `payloads`, `pertinent_indices`, and `seed`, then
+    /// compares decrypted coefficients against those known encodings.
+    ///
+    /// This intentionally does not round the decrypted value to the nearest plaintext
+    /// first: nearest-message rounding can hide decoding failures by choosing the wrong
+    /// plaintext as the reference.
+    pub fn analyze_encode_pertinent_payloads_noise(
+        &self,
+        encoded_payloads: &[NttRlweCiphertext<SecondLevelField>],
+        payloads: &[Payload],
+        pertinent_indices: &[usize],
+        seed: [u8; 32],
+        combination_count: usize,
+        cmb_count_per_cipher: usize,
+        secret_key_pack: &SecretKeyPack,
+    ) -> DetectNoiseStats {
+        let params = self.detection_key.params();
+        let payloads_count = payloads.len();
+        let expected_cipher_count = combination_count.div_ceil(cmb_count_per_cipher);
+        assert_eq!(
+            encoded_payloads.len(),
+            expected_cipher_count,
+            "Invalid encoded payload ciphertext count."
+        );
+        assert!(
+            pertinent_indices.iter().all(|&i| i < payloads_count),
+            "Invalid pertinent payload index."
+        );
+
+        let p = params.output_plain_modulus_value();
+        let p_u64 = p as u64;
+        let distr = Uniform::new(0, p as PayloadByteType);
+        let mut weights = vec![0; combination_count * payloads_count];
+
+        distr
+            .sample_iter(&mut rand::rngs::StdRng::from_seed(seed))
+            .zip(weights.iter_mut())
+            .for_each(|(weight, w)| {
+                *w = weight;
+            });
+
+        let second_level_key = secret_key_pack.second_level_ntt_rlwe_secret_key();
+        let second_level_ntt_table = secret_key_pack.second_level_ntt_table();
+        let mut stats = DetectNoiseStats::default();
+
+        encoded_payloads
+            .iter()
+            .enumerate()
+            .for_each(|(cipher_i, ciphertext)| {
+                let decrypted = decrypt_second_level_ntt_rlwe(
+                    ciphertext,
+                    second_level_key,
+                    second_level_ntt_table,
+                );
+
+                for cmb_i in 0..cmb_count_per_cipher {
+                    let combination_i = cipher_i * cmb_count_per_cipher + cmb_i;
+                    if combination_i >= combination_count {
+                        break;
+                    }
+
+                    let slot_offset = cmb_i * PAYLOAD_LENGTH;
+                    let slots = &decrypted.as_slice()[slot_offset..slot_offset + PAYLOAD_LENGTH];
+                    let weights = &weights
+                        [combination_i * payloads_count..(combination_i + 1) * payloads_count];
+
+                    slots.iter().enumerate().for_each(|(byte_i, &coeff)| {
+                        let expected = pertinent_indices.iter().fold(0u64, |acc, &payload_i| {
+                            (acc + weights[payload_i] as u64 * payloads[payload_i].0[byte_i] as u64)
+                                % p_u64
+                        }) as OutputValue;
+                        let expected = encode_output_value(expected, p);
+
+                        stats.record(coefficient_noise_from_encoded(coeff, expected));
+                    });
+                }
+            });
+
+        stats
+    }
 }
 
 /// LUT for first-layer functional bootstrapping (homomorphic decryption).
@@ -725,10 +890,9 @@ pub fn first_level_lut(
     output_plain_modulus: usize,
 ) -> FieldPolynomial<FirstLevelField> {
     let q = <FirstLevelField as Field>::MODULUS_VALUE;
-    let log = output_plain_modulus.trailing_zeros() - 1;
-    let scale_one = ((q >> log) + 1) >> 1;
+    let scale_one =
+        round_div(q as u128, output_plain_modulus as u128) as <FirstLevelField as Field>::ValueT;
     let scale_minus_one = q - scale_one;
-    let log_plain_modulus = input_plain_modulus.trailing_zeros();
 
     [
         scale_one,
@@ -737,7 +901,7 @@ pub fn first_level_lut(
         FirstLevelField::ZERO,
         scale_minus_one,
     ]
-    .negacyclic_lut(rlwe_dimension, log_plain_modulus)
+    .negacyclic_lut_for_plain_modulus(rlwe_dimension, input_plain_modulus)
 }
 
 /// LUT for second-layer functional bootstrapping (homomorphic checking).
@@ -747,24 +911,13 @@ pub fn second_level_lut(
     input_plain_modulus: usize,
     output_plain_modulus: usize,
 ) -> FieldPolynomial<SecondLevelField> {
-    let q = <SecondLevelField as Field>::MODULUS_VALUE;
-    let scale_one = if output_plain_modulus.is_power_of_two() {
-        let log = output_plain_modulus.trailing_zeros() - 1;
-        ((q >> log) + 1) >> 1
-    } else {
-        let delta = BigDecimal::from_u64(q).unwrap() / (output_plain_modulus as u64);
-        delta
-            .with_scale_round(0, RoundingMode::HalfUp)
-            .to_u64()
-            .unwrap()
-    };
-    let log_plain_modulus = input_plain_modulus.trailing_zeros();
+    let scale_one = output_scale_one(output_plain_modulus as OutputValue);
 
     let mut data = vec![SecondLevelField::ZERO; input_plain_modulus];
-    data[clue_count * 2] = scale_one;
+    data[clue_count] = scale_one;
 
     data.as_slice()
-        .negacyclic_lut(rlwe_dimension, log_plain_modulus)
+        .negacyclic_lut_for_plain_modulus(rlwe_dimension, input_plain_modulus)
 }
 
 #[inline]
@@ -796,6 +949,58 @@ fn decrypt_second_level_ntt_rlwe(
     ntt_table.inverse_transform_inplace(decrypted_ntt)
 }
 
+fn expected_intermediate_plaintext(
+    clues: &CmLweCiphertext<ClueValue>,
+    secret_key_pack: &SecretKeyPack,
+    params: &OmrParameters,
+) -> InterLweValue {
+    let clue_plain_modulus = params.clue_plain_modulus_value();
+    let minus_one_message = clue_plain_modulus >> 1;
+
+    let mut expected = 0i64;
+    clues
+        .extract_all(params.clue_cipher_modulus())
+        .iter()
+        .map(|clue| secret_key_pack.decrypt_clue(clue))
+        .for_each(|message| {
+            if message == 0 {
+                expected += 1;
+            } else if message == minus_one_message {
+                expected -= 1;
+            }
+        });
+
+    let plain_modulus = params.intermediate_lwe_plain_modulus_value() as i64;
+    expected.rem_euclid(plain_modulus) as InterLweValue
+}
+
+fn intermediate_lwe_noise(
+    ciphertext: &LweCiphertext<InterLweValue>,
+    expected_plaintext: InterLweValue,
+    secret_key_pack: &SecretKeyPack,
+    params: &OmrParameters,
+) -> f64 {
+    let lwe_params = params.intermediate_lwe_params();
+    let modulus = lwe_params.cipher_modulus;
+    let a_mul_s = modulus.reduce_dot_product(
+        ciphertext.a(),
+        secret_key_pack.intermediate_lwe_secret_key(),
+    );
+    let decrypted_phase = modulus.reduce_sub(ciphertext.b(), a_mul_s);
+    let expected_encoded = encode_lwe_plaintext(
+        expected_plaintext,
+        lwe_params.plain_modulus_value,
+        lwe_params.cipher_modulus_value,
+    );
+    let cipher_modulus = modulus_value_as_u128(lwe_params.cipher_modulus_value);
+
+    centered_noise_from_encoded(
+        decrypted_phase as u128,
+        expected_encoded as u128,
+        cipher_modulus,
+    )
+}
+
 fn noise_by_coefficient(
     decrypted: &FieldPolynomial<SecondLevelField>,
     plain_modulus: OutputValue,
@@ -820,22 +1025,90 @@ fn coefficient_noise(coeff: OutputValue, plain_modulus: OutputValue) -> f64 {
     let q = <SecondLevelField as Field>::MODULUS_VALUE;
     let decoded =
         round_div(coeff as u128 * plain_modulus as u128, q as u128) as OutputValue % plain_modulus;
-    let encoded = round_div(decoded as u128 * q as u128, plain_modulus as u128) as OutputValue;
+    let encoded = encode_output_value(decoded, plain_modulus);
 
+    coefficient_noise_from_encoded(coeff, encoded)
+}
+
+#[inline]
+fn coefficient_noise_from_encoded(coeff: OutputValue, encoded: OutputValue) -> f64 {
+    let q = <SecondLevelField as Field>::MODULUS_VALUE;
+    centered_noise_from_encoded(coeff as u128, encoded as u128, q as u128)
+}
+
+#[inline]
+fn centered_noise_from_encoded(coeff: u128, encoded: u128, modulus: u128) -> f64 {
     if coeff >= encoded {
         let diff = coeff - encoded;
-        if diff <= q / 2 {
+        if diff <= modulus / 2 {
             diff as f64
         } else {
-            -((q - diff) as f64)
+            -((modulus - diff) as f64)
         }
     } else {
         let diff = encoded - coeff;
-        if diff <= q / 2 {
+        if diff <= modulus / 2 {
             -(diff as f64)
         } else {
-            (q - diff) as f64
+            (modulus - diff) as f64
         }
+    }
+}
+
+#[inline]
+fn modulus_value_as_u128(modulus: ModulusValue<InterLweValue>) -> u128 {
+    match modulus {
+        ModulusValue::Native => 1u128 << InterLweValue::BITS,
+        ModulusValue::PowerOf2(q) | ModulusValue::Prime(q) | ModulusValue::Others(q) => q as u128,
+    }
+}
+
+#[inline]
+fn encode_lwe_plaintext(
+    value: InterLweValue,
+    plain_modulus: InterLweValue,
+    cipher_modulus: ModulusValue<InterLweValue>,
+) -> InterLweValue {
+    debug_assert!(value < plain_modulus);
+
+    let modulus = modulus_value_as_u128(cipher_modulus);
+    let encoded = round_div(value as u128 * modulus, plain_modulus as u128);
+
+    match cipher_modulus {
+        ModulusValue::Native => encoded as InterLweValue,
+        ModulusValue::PowerOf2(q) | ModulusValue::Prime(q) | ModulusValue::Others(q) => {
+            (encoded % q as u128) as InterLweValue
+        }
+    }
+}
+
+#[inline]
+fn encode_output_value(value: OutputValue, plain_modulus: OutputValue) -> OutputValue {
+    debug_assert!(value < plain_modulus);
+
+    let q = <SecondLevelField as Field>::MODULUS_VALUE;
+    let half_p = (plain_modulus + 1) >> 1;
+    let centered = if value < half_p {
+        value
+    } else {
+        q - plain_modulus + value
+    };
+
+    SecondLevelField::mul(centered, output_scale_one(plain_modulus))
+}
+
+fn output_scale_one(plain_modulus: OutputValue) -> OutputValue {
+    let q = <SecondLevelField as Field>::MODULUS_VALUE;
+
+    if plain_modulus.is_power_of_two() {
+        let log = plain_modulus.trailing_zeros() - 1;
+        ((q >> log) + 1) >> 1
+    } else {
+        let delta = BigDecimal::from_u64(q).unwrap() / plain_modulus;
+        delta
+            .with_scale_round(0, RoundingMode::HalfUp)
+            .to_u64()
+            .unwrap()
     }
 }
 
@@ -904,35 +1177,11 @@ fn first_level_bootstrapping(
         FirstLevelField::MODULUS,
     );
 
-    let intermediate_lwe_params = params.intermediate_lwe_params();
-    let intermediate_cipher_modulus_value = intermediate_lwe_params.cipher_modulus_value;
-    let intermediate_cipher_modulus = intermediate_lwe_params.cipher_modulus;
-    let intermediate_plain_modulus_value = intermediate_lwe_params.plain_modulus_value;
-
     // Modulus switching
-    let mut intermediate = lwe_modulus_switch(
+    let intermediate = lwe_modulus_switch(
         &intermediate,
         params.first_level_blind_rotation_params().modulus,
-        intermediate_cipher_modulus_value,
-    );
-
-    let log_plain_modulus = intermediate_plain_modulus_value.trailing_zeros();
-
-    // Add `clue count`
-    let clue_count = params.clue_count();
-    let scale = (clue_count as InterLweValue) * {
-        match intermediate_cipher_modulus_value {
-            ModulusValue::Native => 1 << (InterLweValue::BITS - log_plain_modulus),
-            ModulusValue::PowerOf2(q) => q >> log_plain_modulus,
-            ModulusValue::Prime(q) | ModulusValue::Others(q) => {
-                let temp = q >> (log_plain_modulus - 1);
-                (temp + 1) >> 1
-            }
-        }
-    };
-    intermediate_cipher_modulus.reduce_add_assign(
-        intermediate.b_mut(),
-        intermediate_cipher_modulus.reduce(scale),
+        params.intermediate_lwe_params().cipher_modulus_value,
     );
 
     intermediate
