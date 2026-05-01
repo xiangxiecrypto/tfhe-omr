@@ -125,7 +125,7 @@ impl SecretKeyPack {
             self.clue_secret_key(),
             self.first_level_ntt_rlwe_secret_key(),
             parameters.first_level_blind_rotation_basis(),
-            parameters.first_level_noise_distribution(),
+            &parameters.first_level_noise_distribution(),
             Arc::clone(self.first_level_ntt_table()),
             rng,
         );
@@ -150,7 +150,7 @@ impl SecretKeyPack {
             self.intermediate_lwe_secret_key(),
             self.second_level_ntt_rlwe_secret_key(),
             parameters.second_level_blind_rotation_basis(),
-            parameters.second_level_ring_noise_distribution(),
+            &parameters.second_level_ring_noise_distribution(),
             Arc::clone(self.second_level_ntt_table()),
             rng,
         );
@@ -159,7 +159,7 @@ impl SecretKeyPack {
             self.second_level_rlwe_secret_key(),
             self.second_level_ntt_rlwe_secret_key(),
             parameters.hom_trace_params().basis(),
-            parameters.hom_trace_params().noise_distribution(),
+            &parameters.hom_trace_params().noise_distribution(),
             Arc::clone(self.second_level_ntt_table()),
             rng,
         );
